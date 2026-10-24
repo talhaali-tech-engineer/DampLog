@@ -1,0 +1,12 @@
+{
+  "name": "damplog",
+  "version": "0.1.0",
+  "description": "Evidence log for damp, mould and disrepair in rented homes, with Awaab's Law deadline tracking. Works offline; data stays on the device.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node scripts/serve.js",
+    "test": "node --test"
+  },
+  "license": "MIT"
+}

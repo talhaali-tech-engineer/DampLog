@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <title>DampLog</title>
+  <meta name="description" content="Free evidence log for damp, mould and repairs in rented homes. Tracks Awaab's Law deadlines and writes your letters. Works offline; your record stays on your device.">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#111621" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="DampLog">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/styles.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <div class="shell">
+    <aside class="sidebar">
+      <a class="brand" href="#/home"><img src="icons/icon.svg" alt="" width="32" height="32"><span>DampLog</span></a>
+      <nav class="nav" id="nav" aria-label="Main"></nav>
+      <div class="sidebar-foot" id="sidebar-foot"></div>
+    </aside>
+    <div class="content">
+      <header class="topbar" id="topbar">
+        <a class="brand" href="#/home"><img src="icons/icon.svg" alt="" width="28" height="28"><span>DampLog</span></a>
+        <span class="topbar-title" id="topbar-title" aria-hidden="true"></span>
+        <div class="topbar-status" id="topbar-status"></div>
+      </header>
+      <main id="main" tabindex="-1"><p class="loading">Loading…</p></main>
+    </div>
+  </div>
+  <div id="toast" class="toasts" role="status" aria-live="polite"></div>
+  <noscript><p class="noscript">DampLog needs JavaScript turned on.</p></noscript>
+</body>
+</html>

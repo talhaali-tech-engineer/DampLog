@@ -1,0 +1,16 @@
+node_modules/
+.claude/
+.DS_Store
+Thumbs.db
+*.log
+damplog-backup-*.json
+media/
+.env
+.env.*
+*.pem
+*.key
+*.sqlite
+*.db
+dist/
+build/
+tmp/
