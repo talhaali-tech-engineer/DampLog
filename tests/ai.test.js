@@ -92,3 +92,12 @@ test('word differences mark what was added and removed', () => {
   assert.deepEqual(d.filter((x) => x.type !== 'same').map((x) => `${x.type}:${x.text.trim()}`), ['add:black', 'del:soon.', 'add:now.']);
   assert.equal(d.filter((x) => x.type !== 'del').map((x) => x.text).join(''), 'Please fix the black mould now.');
 });
+
+test('neighbouring word changes are shown as one phrase', () => {
+  const a = 'damp and mould in the bedroom of my home on 2 October';
+  const b = 'damp and mould in my bedroom, which I reported on 2 October';
+  const d = diffWords(a, b);
+  assert.equal(d.filter((x) => x.type !== 'add').map((x) => x.text).join(''), a);
+  assert.equal(d.filter((x) => x.type !== 'del').map((x) => x.text).join(''), b);
+  assert.ok(d.filter((x) => x.type === 'del').length <= 2, JSON.stringify(d));
+});

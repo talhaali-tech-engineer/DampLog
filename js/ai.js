@@ -294,6 +294,32 @@ export function diffWords(a, b) {
   }
   while (i < n) push('del', x[i++]);
   while (j < m) push('add', y[j++]);
+  return groupChanges(out);
+}
+
+// Neighbouring changes separated only by spaces read better as one phrase:
+// "the bedroom of my home" -> "my bedroom" rather than word-by-word swaps.
+function groupChanges(parts) {
+  const out = [];
+  let del = '';
+  let add = '';
+  const flush = () => {
+    if (del) out.push({ type: 'del', text: del });
+    if (add) out.push({ type: 'add', text: add });
+    del = '';
+    add = '';
+  };
+  parts.forEach((p, k) => {
+    const next = parts[k + 1];
+    const between = p.type === 'same' && !p.text.trim() && (del || add) && next && next.type !== 'same';
+    if (p.type === 'del' || between) del += p.text;
+    if (p.type === 'add' || between) add += p.text;
+    if (p.type === 'same' && !between) {
+      flush();
+      out.push(p);
+    }
+  });
+  flush();
   return out;
 }
 
