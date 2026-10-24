@@ -78,31 +78,53 @@ function svg(tag, attrs = {}, ...children) {
   return el;
 }
 
+let probeCount = 0;
+
 /**
- * A moisture meter with an LCD face and two metal probes. Moods (animated in CSS):
- * 'idle' blinks and pulses its probe tips, 'thinking' takes a reading with bouncing
- * bars, 'talking' shows a waveform mouth, and 'alert' turns the screen red when a
- * landlord is late. Colours live in CSS so the screen can change with the mood.
+ * A floating moisture meter with a glowing LCD face and two probe antennae.
+ * Everything moves in CSS: it hovers over a breathing shadow, its antennae sway,
+ * its eyes blink and glance around, and water droplets drift up beside it.
+ * Moods: 'idle', 'thinking' (scan line and reading bars), 'talking' (moving
+ * mouth) and 'alert' (red screen, frown and a nervous shake when a landlord is late).
  */
 export function probe(size = 44, mood = 'idle') {
-  return svg('svg', { viewBox: '0 0 64 64', width: size, height: size, class: `probe ${mood}`, 'aria-hidden': 'true', focusable: 'false' },
-    svg('g', { class: 'probe-body' },
-      svg('rect', { class: 'probe-pin', x: 22.4, y: 4, width: 3.6, height: 13, rx: 1.8 }),
-      svg('rect', { class: 'probe-pin', x: 38, y: 4, width: 3.6, height: 13, rx: 1.8 }),
-      svg('circle', { class: 'probe-tip', cx: 24.2, cy: 4.4, r: 2.6 }),
-      svg('circle', { class: 'probe-tip late', cx: 39.8, cy: 4.4, r: 2.6 }),
-      svg('rect', { class: 'probe-case', x: 9, y: 14.5, width: 46, height: 46, rx: 13 }),
-      svg('rect', { class: 'probe-screen', x: 15, y: 20.5, width: 34, height: 23, rx: 6 }),
-      svg('g', { class: 'probe-face' },
-        svg('rect', { class: 'probe-eye ink', x: 22.5, y: 25.5, width: 5, height: 7.5, rx: 2.5 }),
-        svg('rect', { class: 'probe-eye ink', x: 36.5, y: 25.5, width: 5, height: 7.5, rx: 2.5 }),
-        svg('path', { class: 'probe-mouth line', d: 'M27.5 37.4 Q32 40 36.5 37.4' })),
-      svg('g', { class: 'probe-bars' },
-        svg('rect', { class: 'ink', x: 23, y: 26, width: 4, height: 13, rx: 2 }),
-        svg('rect', { class: 'ink', x: 30, y: 26, width: 4, height: 13, rx: 2 }),
-        svg('rect', { class: 'ink', x: 37, y: 26, width: 4, height: 13, rx: 2 })),
-      svg('circle', { class: 'probe-knob', cx: 22.5, cy: 52, r: 3.4 }),
-      svg('rect', { class: 'probe-knob', x: 30, y: 49.6, width: 16, height: 4.8, rx: 2.4 })));
+  const id = `pb${++probeCount}`;
+  const drop = (cls, x, y, s) => svg('path', { class: `probe-drop ${cls}`, d: `M${x} ${y - 3.2 * s}c${1.8 * s} ${2.4 * s} ${2.6 * s} ${3.6 * s} ${2.6 * s} ${4.8 * s}a${2.6 * s} ${2.6 * s} 0 0 1-${5.2 * s} 0c0-${1.2 * s} ${0.8 * s}-${2.4 * s} ${2.6 * s}-${4.8 * s}z` });
+  return svg('svg', { viewBox: '0 0 80 80', width: size, height: size, class: `probe ${mood}`, 'aria-hidden': 'true', focusable: 'false' },
+    svg('defs', {},
+      svg('linearGradient', { id: `${id}-case`, x1: 0, y1: 0, x2: 0.3, y2: 1 },
+        svg('stop', { offset: 0, 'stop-color': '#3c5166' }), svg('stop', { offset: 0.55, 'stop-color': '#223040' }), svg('stop', { offset: 1, 'stop-color': '#141c25' })),
+      svg('linearGradient', { id: `${id}-screen`, x1: 0, y1: 0, x2: 0, y2: 1 },
+        svg('stop', { offset: 0, 'stop-color': '#0d3d33' }), svg('stop', { offset: 1, 'stop-color': '#041611' })),
+      svg('clipPath', { id: `${id}-clip` }, svg('rect', { x: 20, y: 27, width: 40, height: 26, rx: 8 }))),
+    svg('ellipse', { class: 'probe-shadow', cx: 40, cy: 75, rx: 17, ry: 3.2 }),
+    svg('g', { class: 'probe-drops' }, drop('d1', 11, 52, 1), drop('d2', 69, 44, 0.8), drop('d3', 64, 64, 0.65)),
+    svg('g', { class: 'probe-float' },
+      svg('g', { class: 'probe-shake' },
+        svg('g', { class: 'probe-ant left' },
+          svg('rect', { class: 'probe-pin', x: 29.6, y: 9, width: 3.4, height: 13, rx: 1.7 }),
+          svg('circle', { class: 'probe-tip', cx: 31.3, cy: 8.5, r: 3.4 })),
+        svg('g', { class: 'probe-ant right' },
+          svg('rect', { class: 'probe-pin', x: 47, y: 9, width: 3.4, height: 13, rx: 1.7 }),
+          svg('circle', { class: 'probe-tip', cx: 48.7, cy: 8.5, r: 3.4 })),
+        svg('rect', { class: 'probe-case', x: 13, y: 20, width: 54, height: 50, rx: 17, fill: `url(#${id}-case)` }),
+        svg('path', { class: 'probe-gloss', d: 'M22 26.5 Q28 22.6 37 22.4' }),
+        svg('rect', { class: 'probe-screen', x: 20, y: 27, width: 40, height: 26, rx: 8, fill: `url(#${id}-screen)` }),
+        svg('g', { 'clip-path': `url(#${id}-clip)` },
+          svg('rect', { class: 'probe-scan', x: 20, y: 25, width: 40, height: 3 }),
+          svg('g', { class: 'probe-face' },
+            svg('g', { class: 'probe-eyes' },
+              svg('rect', { class: 'probe-eye ink', x: 28, y: 32.5, width: 6, height: 9.5, rx: 3 }),
+              svg('rect', { class: 'probe-eye ink', x: 46, y: 32.5, width: 6, height: 9.5, rx: 3 })),
+            svg('path', { class: 'probe-brows line', d: 'M26.5 30.6 34 32.6 M53.5 30.6 46 32.6' }),
+            svg('path', { class: 'probe-mouth line', d: 'M35 46.2 Q40 49.8 45 46.2' })),
+          svg('g', { class: 'probe-bars' },
+            svg('rect', { class: 'ink', x: 30.5, y: 33, width: 4.6, height: 15, rx: 2.3 }),
+            svg('rect', { class: 'ink', x: 37.7, y: 33, width: 4.6, height: 15, rx: 2.3 }),
+            svg('rect', { class: 'ink', x: 44.9, y: 33, width: 4.6, height: 15, rx: 2.3 }))),
+        svg('circle', { class: 'probe-knob', cx: 27, cy: 61.5, r: 3.8 }),
+        svg('rect', { class: 'probe-knob', x: 35, y: 59, width: 18, height: 5, rx: 2.5 }),
+        svg('circle', { class: 'probe-led', cx: 59, cy: 61.5, r: 2 }))));
 }
 
 export function setProbeMood(el, mood) {

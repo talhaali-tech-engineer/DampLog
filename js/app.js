@@ -196,10 +196,10 @@ function renderChrome(active) {
   rail.replaceChildren(
     h('a', { class: 'rail-logo', href: '#/home', 'aria-label': 'DampLog' }, h('img', { src: 'icons/icon.svg', alt: '', width: 40, height: 40 })),
     ...NAV.map((n) => item(n, 'rail-item')),
-    h('button', { type: 'button', class: 'rail-probe', onclick: () => openProbe(), 'aria-label': 'Ask Probe' }, probe(46, mood), h('span', {}, 'Probe'), alert && h('span', { class: 'dot-alert' })));
+    h('button', { type: 'button', class: 'rail-probe', onclick: () => openProbe(), 'aria-label': 'Ask Probe' }, probe(52, mood), h('span', {}, 'Probe'), alert && h('span', { class: 'dot-alert' })));
   dock.replaceChildren(
     item(NAV[0], 'dock-item'), item(NAV[1], 'dock-item'),
-    h('button', { type: 'button', class: 'dock-probe', onclick: () => openProbe(), 'aria-label': 'Ask Probe' }, probe(44, mood), alert && h('span', { class: 'dot-alert' })),
+    h('button', { type: 'button', class: 'dock-probe', onclick: () => openProbe(), 'aria-label': 'Ask Probe' }, probe(54, mood), alert && h('span', { class: 'dot-alert' })),
     item(NAV[2], 'dock-item'), item(NAV[3], 'dock-item'));
   mobileTop.replaceChildren(...[
     h('a', { class: 'brand', href: '#/home' }, h('img', { src: 'icons/icon.svg', alt: '', width: 28, height: 28 }), h('span', {}, 'DampLog')),
@@ -248,7 +248,7 @@ function viewWelcome() {
             h('div', { class: 'count late' }, h('span', { class: 'count-num' }, '+5'), h('span', { class: 'count-label' }, 'Days late'))),
           h('div', { class: 'strip animate' }, demo),
           h('div', { class: 'strip-labels' }, h('span', {}, 'Told 2 Oct'), h('span', { class: 'due-label' }, 'Deadline 16 Oct'), h('span', {}, 'Today'))),
-        h('div', { class: 'probe-says' }, probe(64, 'alert'), h('div', { class: 'bubble-say' }, 'Reading: they are 5 working days late. Shall I start the chase letter?')))),
+        h('div', { class: 'probe-says' }, probe(96, 'alert'), h('div', { class: 'bubble-say' }, 'Reading: they are 5 working days late. Shall I start the chase letter?')))),
     h('div', { class: 'features' },
       feature('clock', 'The landlord\'s clock', 'Every working day counted the way the regulations count them, bank holidays included.'),
       feature('camera', 'Dated evidence', 'Photos, calls, visits and missed appointments in one timeline.'),
@@ -366,7 +366,7 @@ function probeTile(t) {
   const steps = nextSteps(state.home, summaries(), t);
   const alert = steps[0]?.tone === 'bad';
   return h('section', { class: 'tile probe-tile row-2' },
-    h('div', { class: 'probe-hero' }, probe(64, alert ? 'alert' : 'idle'),
+    h('div', { class: 'probe-hero' }, probe(84, alert ? 'alert' : 'idle'),
       h('div', {}, h('span', { class: 'kicker' }, 'Probe · reading'), h('h2', {}, steps.length ? 'Your next move' : 'All quiet'))),
     steps.length ? reading(steps[0]) : h('p', { class: 'muted' }, 'Nothing needs doing right now. Add photos as things change.'),
     steps.slice(1, 3).map((s) => reading(s, true)),
@@ -1012,7 +1012,7 @@ function fillReply(m) {
 
 function bubble(m) {
   if (m.role === 'user') return h('div', { class: 'msg user' }, m.content);
-  m.face = probe(32);
+  m.face = probe(36);
   m.el = h('div', { class: 'msg-body' });
   fillReply(m);
   return h('div', { class: 'msg ai' }, m.face, m.el);
@@ -1022,7 +1022,7 @@ function paintProbe() {
   if (!probePanel) return;
   const steps = nextSteps(state.home, summaries(), today());
   const mood = chat.busy ? 'thinking' : steps[0]?.tone === 'bad' ? 'alert' : 'idle';
-  chat.face = probe(54, mood);
+  chat.face = probe(64, mood);
   const input = h('textarea', { rows: 1, placeholder: aiConfig.provider ? 'Ask Probe about your case…' : 'Connect AI help to chat', disabled: !aiConfig.provider, 'aria-label': 'Your question' });
   input.addEventListener('input', () => {
     input.style.height = 'auto';
