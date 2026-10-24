@@ -103,8 +103,17 @@ function openaiRequest(cfg, body) {
   };
 }
 
-/** A streamed request. `content` is text, or a list of { text } and { image: { mediaType, base64 } } parts. */
-export function buildRequest(cfg, { system, content }) {
+/**
+ * A streamed request. Either `content` (text, or a list of { text } and
+ * { image: { mediaType, base64 } } parts) for one question, or `messages`
+ * ({ role, content: string }[]) for a conversation.
+ */
+export function buildRequest(cfg, { system, content, messages }) {
+  if (messages) {
+    return cfg.provider === 'anthropic'
+      ? anthropicRequest(cfg, { max_tokens: 4000, stream: true, cache_control: { type: 'ephemeral' }, system, messages })
+      : openaiRequest(cfg, { stream: true, messages: [{ role: 'system', content: system }, ...messages] });
+  }
   const parts = typeof content === 'string' ? [{ text: content }] : content;
   if (cfg.provider === 'anthropic') {
     const blocks = parts.map((p) => (p.image

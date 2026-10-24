@@ -1,13 +1,14 @@
 // Offline support: serve the app from the cache, refresh the cache in the background.
 // Bump CACHE on every release so old files are dropped.
 
-const CACHE = 'damplog-v1';
+const CACHE = 'damplog-v2';
 const SHELL = [
   './',
   'index.html',
   'css/styles.css',
   'js/app.js',
   'js/ai.js',
+  'js/assistant.js',
   'js/core.js',
   'js/db.js',
   'js/icons.js',

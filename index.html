@@ -7,7 +7,7 @@
   <title>DampLog</title>
   <meta name="description" content="Free evidence log for damp, mould and repairs in rented homes. Tracks Awaab's Law deadlines and writes your letters. Works offline; your record stays on your device.">
   <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#111621" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#1a1d1b" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="DampLog">
@@ -19,21 +19,14 @@
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
-  <div class="shell">
-    <aside class="sidebar">
-      <a class="brand" href="#/home"><img src="icons/icon.svg" alt="" width="32" height="32"><span>DampLog</span></a>
+  <header class="topbar" id="topbar">
+    <div class="topbar-inner">
+      <a class="brand" href="#/home"><img src="icons/icon.svg" alt="" width="30" height="30"><span>DampLog</span></a>
       <nav class="nav" id="nav" aria-label="Main"></nav>
-      <div class="sidebar-foot" id="sidebar-foot"></div>
-    </aside>
-    <div class="content">
-      <header class="topbar" id="topbar">
-        <a class="brand" href="#/home"><img src="icons/icon.svg" alt="" width="28" height="28"><span>DampLog</span></a>
-        <span class="topbar-title" id="topbar-title" aria-hidden="true"></span>
-        <div class="topbar-status" id="topbar-status"></div>
-      </header>
-      <main id="main" tabindex="-1"><p class="loading">Loading…</p></main>
+      <div class="top-actions" id="top-actions"></div>
     </div>
-  </div>
+  </header>
+  <main id="main" tabindex="-1"><p class="loading">Loading…</p></main>
   <div id="toast" class="toasts" role="status" aria-live="polite"></div>
   <noscript><p class="noscript">DampLog needs JavaScript turned on.</p></noscript>
 </body>

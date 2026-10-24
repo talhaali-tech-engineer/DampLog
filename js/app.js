@@ -7,14 +7,12 @@ import * as ai from './ai.js';
 import { LETTERS, buildLetter } from './letters.js';
 import { preparePhoto, photoUrl, forgetPhotos, blobToDataUrl, dataUrlToBlob } from './photos.js';
 import { sampleData, drawSample } from './sample.js';
-import { h, icon, fmtDate, fmtTime, plural, toast, download } from './ui.js';
+import { recordContext, assistantSystem, SUGGESTIONS } from './assistant.js';
+import { h, icon, bot, setBotState, renderMarkdown, fmtDate, fmtTime, plural, toast, download } from './ui.js';
 
 const main = document.getElementById('main');
-const topbar = document.getElementById('topbar');
-const topbarTitle = document.getElementById('topbar-title');
-const topbarStatus = document.getElementById('topbar-status');
 const nav = document.getElementById('nav');
-const sidebarFoot = document.getElementById('sidebar-foot');
+const topActions = document.getElementById('top-actions');
 const channel = 'BroadcastChannel' in window ? new BroadcastChannel('damplog') : null;
 
 let state = { home: core.cleanHome(), issues: [], entries: [], photos: [] };
@@ -23,6 +21,10 @@ let aiConfig = ai.cleanAiConfig();
 
 // Saving the whole record at once (sample, restore) must not drop the AI key.
 const aiMeta = () => (aiConfig.provider ? [{ id: 'ai', ...aiConfig }] : []);
+
+// The assistant conversation lives in memory only, so it survives moving between
+// screens but is never saved.
+const chat = { messages: [], busy: false, controller: null };
 
 /* ---------- helpers ---------- */
 
@@ -178,26 +180,30 @@ const STEP_ENTRY = { investigation: 'investigation', summary: 'summary', 'make-s
 
 const NAV = [
   { view: 'home', text: 'Overview', icon: 'home' },
-  { view: 'new', text: 'New problem', icon: 'plus' },
-  { view: 'rights', text: 'Your rights', icon: 'scale' },
+  { view: 'assistant', text: 'Assistant', icon: 'sparkle' },
   { view: 'letters', text: 'Letters', icon: 'mail' },
+  { view: 'rights', text: 'Your rights', icon: 'scale' },
   { view: 'settings', text: 'Settings', icon: 'settings' },
 ];
 
+// Desktop: links in the top bar, with the assistant and New problem on the right.
+// Phones: the links become a row of tabs and New problem moves to a + button.
+let fab = null;
+
 function renderChrome(active) {
-  const item = (n) => h('a', { href: `#/${n.view}`, class: `nav-item nav-${n.view}`, 'aria-current': n.view === active ? 'page' : null },
-    icon(n.icon, 22), h('span', {}, n.text));
-  // On phones, New problem moves behind a raised + button in the middle of the bar.
-  const quick = h('button', { type: 'button', class: `nav-quick${['new', 'add'].includes(active) ? ' active' : ''}`, 'aria-label': 'Add to your record', onclick: openQuickSheet },
-    h('span', { class: 'nav-quick-circle' }, icon('plus', 24)));
-  nav.replaceChildren(item(NAV[0]), item(NAV[1]), item(NAV[2]), quick, item(NAV[3]), item(NAV[4]));
-  topbarStatus.replaceChildren(...[!navigator.onLine && h('span', { class: 'status-pill' }, icon('wifiOff', 14), 'Offline')].filter(Boolean));
-  sidebarFoot.replaceChildren(
-    h('div', { class: 'foot-item' }, icon('shield', 16), h('span', {}, 'Your record stays on this device')),
-    h('div', { class: 'foot-item' }, icon('wifiOff', 16), h('span', {}, 'Works offline')),
-    h('a', { class: `foot-item${aiConfig.provider ? ' on' : ''}`, href: '#/settings?section=ai' }, icon('sparkle', 16),
-      h('span', {}, aiConfig.provider ? `AI help on · ${aiConfig.model}` : 'AI help off')),
-  );
+  nav.replaceChildren(...NAV.map((n) => h('a', { href: `#/${n.view}`, class: 'nav-item', 'aria-current': n.view === active ? 'page' : null },
+    icon(n.icon, 16), h('span', {}, n.text))));
+  topActions.replaceChildren(...[
+    !navigator.onLine && h('span', { class: 'status-pill' }, icon('wifiOff', 14), 'Offline'),
+    h('a', { class: 'ask-btn', href: '#/assistant', 'aria-current': active === 'assistant' ? 'page' : null }, bot(30), h('span', {}, 'Ask')),
+    btn('New problem', { icon: 'plus', kind: 'primary', href: '#/new' }),
+  ].filter(Boolean));
+  topActions.lastElementChild.classList.add('new-btn');
+  if (!fab) {
+    fab = h('button', { type: 'button', class: 'fab', 'aria-label': 'Add to your record', onclick: openQuickSheet }, icon('plus', 26));
+    document.body.append(fab);
+  }
+  fab.hidden = active === 'assistant';
 }
 
 function openQuickSheet() {
@@ -213,26 +219,38 @@ function openQuickSheet() {
 /* ---------- welcome and setup ---------- */
 
 function viewWelcome() {
-  const feature = (iconName, title, text) => h('div', { class: 'feature' }, h('span', { class: 'feature-icon' }, icon(iconName, 18)), h('strong', {}, title), h('p', {}, text));
+  const feature = (iconName, title, text) => h('div', { class: 'feature' }, h('span', { class: 'feature-icon' }, icon(iconName, 20)), h('strong', {}, title), h('p', {}, text));
+  // A worked example on the right: what the tracker shows when a landlord is late.
+  const exampleStep = (tone, iconName, title, label, detail) => h('li', { class: `step ${tone === 'bad' ? 'overdue' : ''}` },
+    h('span', { class: `step-dot ${tone}` }, icon(iconName, 14)),
+    h('div', { class: 'step-text' }, h('div', { class: 'step-title' }, h('strong', {}, title), badge(tone, label)), h('span', { class: 'muted small' }, detail)));
   return h('div', { class: 'page welcome' },
     h('section', { class: 'hero' },
-      h('span', { class: 'eyebrow' }, icon('droplet', 14), 'For tenants in England'),
-      h('h1', {}, 'Keep the evidence. Hold your landlord to the deadlines.'),
-      h('p', { class: 'lead' }, 'Log damp, mould and repairs with dated photos, see the deadlines your landlord has to meet under Awaab\'s Law, and turn your record into letters and an evidence report. Free, works offline, and everything stays on your phone.'),
-      h('div', { class: 'actions' },
-        btn('Get started', { icon: 'next', kind: 'primary', href: '#/setup' }),
-        btn('Try it with sample data', {
-          icon: 'refresh',
-          onclick: (e) => {
-            e.currentTarget.disabled = true;
-            act(loadSample);
-          },
-        }))),
+      h('div', {},
+        h('span', { class: 'eyebrow' }, icon('droplet', 14), 'For tenants in England'),
+        h('h1', {}, 'Keep the evidence. Hold your landlord to the deadlines.'),
+        h('p', { class: 'lead' }, 'Log damp, mould and repairs with dated photos, see the deadlines your landlord has to meet under Awaab\'s Law, and turn your record into letters and an evidence report. Free, works offline, and everything stays on your phone.'),
+        h('div', { class: 'actions' },
+          btn('Get started', { icon: 'next', kind: 'primary', href: '#/setup' }),
+          btn('Try it with sample data', {
+            icon: 'refresh',
+            onclick: (e) => {
+              e.currentTarget.disabled = true;
+              act(loadSample);
+            },
+          }))),
+      h('div', { class: 'hero-file', 'aria-label': 'Example of the deadline tracker' },
+        h('div', { class: 'file-head' }, h('strong', {}, 'Black mould in the bedroom'), h('span', { class: 'kicker' }, 'Example')),
+        h('ol', { class: 'steps' },
+          exampleStep('ok', 'check', 'Reported to the landlord', 'Done', 'Fri 2 Oct, by phone, ref EC-48213'),
+          exampleStep('bad', 'alert', 'Investigate the problem', 'Overdue', 'Was due Fri 16 Oct · 5 working days late'),
+          exampleStep('', 'clock', 'Written summary', 'Not started', 'Within 3 working days of the investigation')),
+        h('div', { class: 'assist-head' }, bot(40), h('div', {}, h('strong', {}, 'Ask the assistant'), h('p', {}, '"What should I do next?"'))))),
     h('div', { class: 'features' },
       feature('camera', 'Dated evidence', 'Photos, notes, calls and visits in one timeline, each with the date and time.'),
       feature('clock', 'Deadline tracker', 'Counts working days the way the regulations do, bank holidays included.'),
       feature('mail', 'Letters in one tap', 'Report the problem, chase a missed deadline or make a formal complaint.'),
-      feature('report', 'Evidence report', 'A printable pack with the timeline, deadlines and photos, ready for a complaint.')),
+      feature('sparkle', 'An assistant that knows your record', 'Ask what to do next. It reads your timeline and deadlines, and you can check every word.')),
     scopeNote());
 }
 
@@ -298,51 +316,81 @@ function viewHome() {
   const next = open.map((s) => s.deadlines.next && { s, step: s.deadlines.next }).filter(Boolean)
     .sort((a, b) => (a.step.dueAt ?? a.step.due).localeCompare(b.step.dueAt ?? b.step.due))[0];
   const photos = list.reduce((n, s) => n + s.photos, 0);
-  const kpi = (iconName, tone, title, big, sub, href) => h('a', { class: `kpi ${tone}`, href },
-    h('span', { class: 'kpi-icon' }, icon(iconName, 20)), h('span', { class: 'kpi-title' }, title), h('strong', { class: 'kpi-value' }, big), h('span', { class: 'kpi-sub' }, sub));
+  const worst = overdue[0];
+  const ledger = (tone, label, value, sub, href) => h('a', { class: `ledger-item ${tone}`, href },
+    h('span', { class: 'ledger-label' }, label), h('strong', { class: 'ledger-value' }, value), h('span', { class: 'ledger-sub' }, sub));
+
+  // One sentence that says where things stand, written from the record.
+  let headline;
+  if (worst) {
+    const late = worst.step.dueAt ? null : core.workingDaysBetween(worst.step.due, t.date);
+    headline = h('h1', {}, 'Your landlord is ', h('em', {}, late ? `${plural(late, 'working day')} late` : 'late'), ` on the ${worst.s.issue.title.charAt(0).toLowerCase()}${worst.s.issue.title.slice(1)}.`);
+  } else if (open.some((s) => !s.deadlines.reportedAt)) {
+    headline = h('h1', {}, 'You have a problem your landlord has not been told about yet.');
+  } else if (open.length) {
+    headline = h('h1', {}, 'Your landlord is ', h('em', { class: 'ok' }, 'within the deadlines'), ' so far.');
+  } else {
+    headline = h('h1', {}, list.length ? 'Every problem on your record is fixed.' : 'Start your record with the first problem.');
+  }
 
   return h('div', { class: 'page' },
     state.home.sample && notice('info', 'info', h('strong', {}, 'You are looking at sample data. '), 'Have a look around, then clear it in ', h('a', { href: '#/settings?section=erase' }, 'Settings'), ' to start your own record.'),
-    pageHead('Overview', state.home.address || 'Your home', [btn('Log a new problem', { icon: 'plus', kind: 'primary', href: '#/new' })]),
-    overdue.length > 0 && notice('bad', 'alert',
-      h('strong', {}, `Your landlord has missed ${plural(overdue.length, 'deadline')}. `),
-      'Chase them in writing and keep a copy. ',
-      h('a', { href: `#/letters/${overdue[0].s.issue.id}?kind=chase` }, 'Write a chase letter')),
-    h('div', { class: 'kpis' },
-      kpi('droplet', 'info', 'Open problems', String(open.length), list.length > open.length ? `${list.length - open.length} fixed` : 'Being tracked', '#/home'),
-      kpi('alert', overdue.length ? 'bad' : 'ok', 'Missed deadlines', String(overdue.length), overdue.length ? 'Landlord is late' : 'None so far', overdue.length ? `#/issue/${overdue[0].s.issue.id}` : '#/home'),
-      kpi('clock', 'warn', 'Next deadline', next ? fmtDate(next.step.dueAt ?? next.step.due, { year: false }) : '—', next ? next.step.title : 'Nothing due', next ? `#/issue/${next.s.issue.id}` : '#/home'),
-      kpi('camera', 'info', 'Evidence', String(photos), `${plural(state.entries.length, 'entry', 'entries')} in your record`, '#/home')),
-    card('table-card',
-      h('div', { class: 'card-pad' }, cardHead('Problems', { iconName: 'droplet', sub: 'Newest activity first. Missed deadlines at the top.' })),
-      list.length
-        ? h('ul', { class: 'issue-list' }, list.map((s) => issueRow(s, t)))
-        : h('div', { class: 'card-pad' }, emptyState('droplet', 'No problems logged yet', 'Log the first problem with a photo. You can add to the record any time.', btn('Log a new problem', { icon: 'plus', kind: 'primary', href: '#/new' })))),
-    backupNudge(),
-    state.home.landlordType !== 'social' && notice('', 'info', h('strong', {}, 'Private renting: '),
-      'Awaab\'s Law deadlines do not apply to private landlords yet, so DampLog tracks the steps without legal due dates. Your record is still the evidence you need. ',
-      h('a', { href: '#/rights' }, 'What you can do')),
+    h('section', { class: 'status-hero' },
+      h('div', {}, h('span', { class: 'kicker' }, state.home.address || 'Your home'), headline,
+        h('p', {}, worst
+          ? `The landlord had to ${worst.step.title.charAt(0).toLowerCase()}${worst.step.title.slice(1)} by ${fmtDate(worst.step.dueAt ?? worst.step.due, { weekday: true })}. Chase them in writing and keep a copy.`
+          : next ? `Next: ${next.step.title.toLowerCase()} by ${fmtDate(next.step.dueAt ?? next.step.due, { weekday: true })}.` : 'Add photos, calls and visits as things happen.')),
+      worst
+        ? btn('Write a chase letter', { icon: 'mail', kind: 'primary', href: `#/letters/${worst.s.issue.id}?kind=chase` })
+        : btn('Log a new problem', { icon: 'plus', kind: 'primary', href: '#/new' })),
+    h('div', { class: 'ledger' },
+      ledger('', 'Open problems', String(open.length), list.length > open.length ? `${list.length - open.length} fixed` : 'Being tracked', '#/home'),
+      ledger(overdue.length ? 'bad' : '', 'Missed deadlines', String(overdue.length), overdue.length ? 'The landlord is late' : 'None so far', worst ? `#/issue/${worst.s.issue.id}` : '#/home'),
+      ledger('', 'Next deadline', next ? fmtDate(next.step.dueAt ?? next.step.due, { year: false }) : '—', next ? next.step.title : 'Nothing due', next ? `#/issue/${next.s.issue.id}` : '#/home'),
+      ledger('', 'Evidence', String(photos), `photos · ${plural(state.entries.length, 'entry', 'entries')}`, '#/home')),
+    h('div', { class: 'overview-grid' },
+      h('section', {},
+        h('div', { class: 'section-title' }, h('h2', {}, 'Your case files'), h('span', { class: 'muted small' }, 'Missed deadlines first')),
+        list.length
+          ? h('ul', { class: 'cases' }, list.map((s) => caseCard(s, t)))
+          : card('', emptyState('droplet', 'No problems logged yet', 'Log the first problem with a photo. You can add to the record any time.', btn('Log a new problem', { icon: 'plus', kind: 'primary', href: '#/new' })))),
+      h('div', { class: 'stack' },
+        assistCard(),
+        backupNudge(),
+        state.home.landlordType !== 'social' && notice('', 'info', h('strong', {}, 'Private renting: '),
+          'Awaab\'s Law deadlines do not apply to private landlords yet, so DampLog tracks the steps without legal due dates. ',
+          h('a', { href: '#/rights' }, 'What you can do')))),
     scopeNote());
 }
 
-function issueRow(s, t) {
+function caseCard(s, t) {
   const { issue, deadlines: d } = s;
-  const line = s.fixed
+  const tone = s.fixed ? 'ok' : d.overdue.length ? 'bad' : !d.reportedAt ? 'warn' : 'info';
+  const meta = s.fixed
     ? `Fixed${issue.closedAt ? ` on ${fmtDate(issue.closedAt)}` : ''}`
     : d.reportedAt
       ? `Reported ${fmtDate(d.reportedAt)} · ${plural(s.workingDaysSinceReport, 'working day')} ago`
-      : `Noticed ${fmtDate(issue.firstNoticed ?? issue.createdAt)} · not reported to the landlord yet`;
+      : `Noticed ${fmtDate(issue.firstNoticed ?? issue.createdAt)} · not reported yet`;
   const nextStep = d.overdue[0] ?? d.next;
-  return h('li', {}, h('a', { class: 'issue-row', href: `#/issue/${issue.id}` },
-    h('span', { class: `issue-icon ${s.fixed ? 'ok' : d.overdue.length ? 'bad' : ''}` }, icon(KIND_ICON[issue.kind], 18)),
-    h('span', { class: 'issue-text' },
-      h('strong', {}, issue.title),
-      h('span', {}, issueSub(issue)),
-      h('span', { class: 'issue-line' }, line)),
-    h('span', { class: 'issue-side' },
-      issueBadge(s),
-      !s.fixed && nextStep && h('small', {}, `${nextStep.title}: ${stepDetail(nextStep, t)}`)),
-    icon('next', 16)));
+  const nextLine = s.fixed ? null
+    : nextStep ? `${nextStep.title}: ${stepDetail(nextStep, t)}`
+      : !d.reportedAt ? 'Tell your landlord in writing so the deadlines start' : null;
+  return h('li', {}, h('a', { class: `case ${tone}`, href: `#/issue/${issue.id}` },
+    h('div', {}, h('h3', {}, issue.title), h('span', { class: 'case-meta' }, `${issueSub(issue)} · ${meta}`)),
+    h('div', { class: 'case-side' }, issueBadge(s), h('span', { class: 'muted small' }, plural(s.photos, 'photo'))),
+    nextLine && h('div', { class: 'case-next' }, icon(d.overdue.length ? 'alert' : 'clock', 15), h('span', {}, nextLine))));
+}
+
+function assistCard() {
+  const ask = (q) => {
+    location.hash = '#/assistant';
+    setTimeout(() => askAssistant(q), 50);
+  };
+  return card('assist-card',
+    h('div', { class: 'assist-head' }, bot(48), h('div', {}, h('h2', {}, 'Ask about your case'), h('p', {}, aiConfig.provider ? 'The assistant reads your record and deadlines.' : 'Connect AI help to ask questions about your record.'))),
+    aiConfig.provider
+      ? h('ul', { class: 'prompt-list' }, SUGGESTIONS.slice(0, 3).map((q) => h('li', {}, h('button', { type: 'button', class: 'prompt', onclick: () => ask(q) }, h('span', {}, q), icon('next', 15)))))
+      : btn('Connect AI help', { icon: 'sparkle', href: '#/settings?section=ai' }));
 }
 
 function backupNudge() {
@@ -899,6 +947,110 @@ function viewReport(id) {
         `Generated by DampLog on ${fmtDate(t.date)}. Entries and photo dates were recorded by the tenant. Deadlines are counted in working days (excluding weekends and bank holidays in England and Wales) from the day after the landlord was told, following the Hazards in Social Housing (Prescribed Requirements) (England) Regulations 2025.`)));
 }
 
+/* ---------- assistant ---------- */
+
+const chatIntro = (actions) => h('header', { class: 'chat-intro' }, bot(72),
+  h('div', { class: 'chat-intro-text' }, h('span', { class: 'kicker' }, 'Assistant'), h('h1', {}, 'Ask about your case'),
+    h('p', {}, 'It reads your problems, timeline and the deadlines DampLog has worked out, then tells you what to do next.')),
+  actions);
+
+function fillReply(m) {
+  if (!m.el) return;
+  if (m.error) m.el.replaceChildren(notice('bad', 'alert', m.error));
+  else if (!m.content) m.el.replaceChildren(h('span', { class: 'typing', 'aria-label': 'Thinking' }, h('i'), h('i'), h('i')));
+  else m.el.replaceChildren(renderMarkdown(m.content));
+  setBotState(m.face, m.pending ? (m.content ? 'talking' : 'thinking') : 'idle');
+}
+
+function bubble(m) {
+  if (m.role === 'user') return h('div', { class: 'msg user' }, h('div', { class: 'msg-body' }, m.content));
+  m.face = bot(36);
+  m.el = h('div', { class: 'msg-body' });
+  fillReply(m);
+  return h('div', { class: 'msg ai' }, m.face, h('div', {}, h('div', { class: 'msg-name' }, 'DampLog assistant'), m.el));
+}
+
+function showChat() {
+  if (currentRoute().name !== 'assistant') return;
+  render();
+  requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
+}
+
+async function askAssistant(text) {
+  const question = text.trim();
+  if (!question || chat.busy) return;
+  try {
+    aiReady();
+  } catch (err) {
+    toast(err.message, 'bad');
+    return;
+  }
+  const history = chat.messages.filter((m) => !m.error).map(({ role, content }) => ({ role, content }));
+  chat.messages.push({ role: 'user', content: question });
+  const reply = { role: 'assistant', content: '', pending: true };
+  chat.messages.push(reply);
+  chat.busy = true;
+  chat.controller = new AbortController();
+  showChat();
+  try {
+    // The record is read fresh for every question, so answers follow new entries.
+    const system = assistantSystem(recordContext(state.home, summaries(), today()));
+    await ai.stream(aiConfig, { system, messages: [...history, { role: 'user', content: question }] }, (t) => {
+      reply.content = t;
+      fillReply(reply);
+    }, { signal: chat.controller.signal });
+  } catch (err) {
+    if (err?.name === 'AbortError') reply.content ||= 'Stopped.';
+    else reply.error = err.message;
+  } finally {
+    reply.pending = false;
+    chat.busy = false;
+    chat.controller = null;
+    showChat();
+  }
+}
+
+function viewAssistant() {
+  if (!aiConfig.provider) {
+    return h('div', { class: 'page chat-page' },
+      chatIntro(),
+      card('connect', bot(80),
+        h('h2', {}, 'Connect AI help to use the assistant'),
+        h('p', {}, 'Paste your own OpenAI or Claude key in Settings. It stays on this device, and the assistant only reads your record when you ask it something.'),
+        btn('Connect AI help', { icon: 'sparkle', kind: 'primary', href: '#/settings?section=ai' })));
+  }
+  const input = h('textarea', { rows: 1, placeholder: 'Ask about your record…', 'aria-label': 'Your question' });
+  const grow = () => {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
+  };
+  input.addEventListener('input', grow);
+  const form = h('form', { class: 'composer' }, input,
+    chat.busy
+      ? btn('', { icon: 'stop', title: 'Stop', onclick: () => chat.controller?.abort() })
+      : btn('', { icon: 'send', kind: 'primary', title: 'Send', type: 'submit' }));
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = input.value;
+    input.value = '';
+    askAssistant(text);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  const clear = chat.messages.length > 0 && !chat.busy && btn('New chat', { icon: 'refresh', size: 'sm', kind: 'ghost', onclick: () => { chat.messages = []; render(); } });
+  return h('div', { class: 'page chat-page' },
+    chatIntro(clear),
+    chat.messages.length
+      ? h('div', { class: 'thread', 'aria-live': 'polite' }, chat.messages.map(bubble))
+      : h('ul', { class: 'prompt-list chat-prompts' }, SUGGESTIONS.map((q) => h('li', {}, h('button', { type: 'button', class: 'prompt', onclick: () => askAssistant(q) }, h('span', {}, q), icon('next', 15))))),
+    form,
+    h('p', { class: 'fineprint' }, `The assistant sees your problems, notes, dates, deadlines and who lives in your home, never your photos. It uses ${ai.PROVIDERS[aiConfig.provider].name} with your key. It is not legal advice: check anything important with Shelter or Citizens Advice.`));
+}
+
 /* ---------- your rights ---------- */
 
 function viewRights() {
@@ -1116,9 +1268,9 @@ function notFound() {
 
 /* ---------- routing ---------- */
 
-const VIEWS = { home: viewHome, setup: viewSetup, new: viewNew, issue: viewIssue, add: viewAdd, letters: viewLetters, report: viewReport, rights: viewRights, settings: viewSettings };
-const TITLES = { home: 'Overview', setup: 'About your home', new: 'New problem', issue: 'Problem', add: 'Add to the record', letters: 'Letters', report: 'Evidence report', rights: 'Your rights', settings: 'Settings' };
-const NAV_FOR = { setup: 'settings', issue: 'home', add: 'home', report: 'home' };
+const VIEWS = { home: viewHome, setup: viewSetup, new: viewNew, issue: viewIssue, add: viewAdd, letters: viewLetters, report: viewReport, assistant: viewAssistant, rights: viewRights, settings: viewSettings };
+const TITLES = { home: 'Overview', setup: 'About your home', new: 'New problem', issue: 'Problem', add: 'Add to the record', letters: 'Letters', report: 'Evidence report', assistant: 'Assistant', rights: 'Your rights', settings: 'Settings' };
+const NAV_FOR = { setup: 'settings', new: 'home', issue: 'home', add: 'home', report: 'home' };
 
 function currentRoute() {
   const [path, query = ''] = location.hash.replace(/^#\/?/, '').split('?');
@@ -1132,23 +1284,13 @@ function currentRoute() {
   return VIEWS[name] ? { name, arg: decoded, params: new URLSearchParams(query) } : { name: 'home', arg: '', params: new URLSearchParams() };
 }
 
-let titleWatcher = null;
-
 function render() {
   const { name, arg, params } = currentRoute();
   renderChrome(NAV_FOR[name] ?? name);
-  const view = VIEWS[name](arg, params);
-  main.replaceChildren(view);
-  const heading = main.querySelector('h1');
+  main.replaceChildren(VIEWS[name](arg, params));
+  // The overview's heading is a sentence about the case, so it keeps its plain title.
+  const heading = name === 'home' ? null : main.querySelector('h1');
   document.title = `${heading?.textContent ?? TITLES[name]} · DampLog`;
-  // Phones: the page title slides into the top bar once the big heading scrolls away.
-  topbarTitle.textContent = heading?.textContent ?? TITLES[name];
-  titleWatcher?.disconnect();
-  topbar.classList.toggle('show-title', false);
-  if (heading && 'IntersectionObserver' in window) {
-    titleWatcher = new IntersectionObserver(([entry]) => topbar.classList.toggle('show-title', !entry.isIntersecting), { rootMargin: '-56px 0px 0px 0px' });
-    titleWatcher.observe(heading);
-  }
 }
 
 function afterNavigate() {
@@ -1156,8 +1298,10 @@ function afterNavigate() {
   main.classList.remove('enter');
   void main.offsetWidth; // restart the entrance animation
   main.classList.add('enter');
-  const section = currentRoute().params.get('section');
+  const { name, params } = currentRoute();
+  const section = params.get('section');
   if (section) requestAnimationFrame(() => document.getElementById(section)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  else if (name === 'assistant' && chat.messages.length) requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
   else window.scrollTo(0, 0);
 }
 

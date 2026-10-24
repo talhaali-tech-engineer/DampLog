@@ -35,6 +35,7 @@ The deadlines only help a tenant who can show when the landlord was told and wha
 - **Deadline tracker.** Once a problem is recorded as reported, DampLog works out each deadline under the regulations and shows whether the landlord is on time, late or overdue.
 - **Letters.** One tap builds a letter to report the problem, chase a missed deadline or make a formal complaint, filled in from the record. You can edit it, copy it, email it or print it.
 - **Evidence report.** A printable pack with the summary, deadlines, full timeline and numbered photos, ready for a complaint, the Housing Ombudsman or an adviser.
+- **An assistant that knows your case.** Ask "What should I do next?" and it answers from your own record: the timeline, and the deadlines DampLog has already worked out, so it never invents dates. It never sees your photos.
 - **Optional AI help.** With the tenant's own OpenAI or Claude key, AI describes photos factually for the record and tightens letters. Nothing the AI writes is saved until the tenant accepts it. Letter changes are shown word by word, and code checks that no date, reference or name was dropped or invented and that no legal threat was added.
 - **Your rights.** A plain-English summary of the deadlines and the route if a landlord does not act, with links to the official guidance.
 - **Private renters.** For private landlords, the same steps are tracked without legal due dates, because Awaab's Law does not apply to private renting yet.
@@ -44,8 +45,10 @@ The deadlines only help a tenant who can show when the landlord was told and wha
 | A problem's timeline and the landlord's deadlines | The printable evidence report |
 | --- | --- |
 | ![Timeline with photos, and the deadline tracker showing a missed investigation](docs/problem.jpg) | ![Evidence report with summary, deadline table and timeline](docs/report.jpg) |
-| **AI describes the photos, you check the words** | **AI tightens a letter, every change shown and fact-checked** |
-| ![AI photo description waiting in a review box](docs/ai-photo.jpg) | ![Word-by-word changes to a letter, with the fact check passed](docs/ai-letter.jpg) |
+| **The assistant answers from your record** | **AI tightens a letter, every change shown and fact-checked** |
+| ![The assistant explaining a missed deadline and the next steps](docs/assistant.jpg) | ![Word-by-word changes to a letter, with the fact check passed](docs/ai-letter.jpg) |
+| **AI describes the photos, you check the words** | |
+| ![AI photo description waiting in a review box](docs/ai-photo.jpg) | |
 
 <div align="center">
 <img src="docs/phone-overview.jpg" alt="DampLog overview on a phone" width="260">&nbsp;&nbsp;
@@ -77,6 +80,7 @@ There is no account, no server and no tracking. The record, including every phot
 - A static progressive web app: plain HTML, CSS and JavaScript modules, with no build step and no dependencies.
 - `js/core.js` holds the rules: working days, deadlines, validation and backups. It has no DOM code and is unit-tested in Node.
 - `js/letters.js` builds the letters from the record.
+- `js/assistant.js` turns the record into plain text for the assistant, with the deadlines already worked out by `core.js`.
 - `js/ai.js` sends requests straight from the browser to OpenAI or Anthropic, streams the reply, and checks rewritten letters against the original.
 - `js/db.js` stores problems, entries and photos in IndexedDB, saving each change in one transaction.
 - `js/photos.js` resizes photos on the device before saving them.
@@ -97,7 +101,7 @@ Then open http://localhost:8080. Choose **Try it with sample data** to see a wor
 npm test
 ```
 
-The tests cover working days across Christmas and Easter, every deadline and status, the 24-hour emergency clock, private landlords, validation, backups, the letter wording, the AI requests for both providers, and the check that catches a rewritten letter dropping or inventing facts.
+The tests cover working days across Christmas and Easter, every deadline and status, the 24-hour emergency clock, private landlords, validation, backups, the letter wording, the AI requests for both providers, what the assistant is given to read, and the check that catches a rewritten letter dropping or inventing facts.
 
 ## Limitations
 
