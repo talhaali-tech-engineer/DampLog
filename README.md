@@ -9,9 +9,9 @@
 [**Live app**](https://talhaali-tech-engineer.github.io/DampLog/) &nbsp;·&nbsp; [Screenshots](#screenshots) &nbsp;·&nbsp; [How the deadlines are counted](#how-the-deadlines-are-counted) &nbsp;·&nbsp; [Run it locally](#run-it-locally)
 
 [![Tests](https://github.com/talhaali-tech-engineer/DampLog/actions/workflows/test.yml/badge.svg)](https://github.com/talhaali-tech-engineer/DampLog/actions/workflows/test.yml)
-![License: MIT](https://img.shields.io/badge/license-MIT-0f766e)
-![Dependencies: none](https://img.shields.io/badge/dependencies-none-0f766e)
-![Works offline](https://img.shields.io/badge/works-offline-0f766e)
+![License: MIT](https://img.shields.io/badge/license-MIT-2f6fe0)
+![Dependencies: none](https://img.shields.io/badge/dependencies-none-2f6fe0)
+![Works offline](https://img.shields.io/badge/works-offline-2f6fe0)
 
 </div>
 
