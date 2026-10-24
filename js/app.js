@@ -3,6 +3,7 @@
 
 import * as core from './core.js';
 import * as db from './db.js';
+import * as ai from './ai.js';
 import { LETTERS, buildLetter } from './letters.js';
 import { preparePhoto, photoUrl, forgetPhotos, blobToDataUrl, dataUrlToBlob } from './photos.js';
 import { sampleData, drawSample } from './sample.js';
@@ -18,6 +19,10 @@ const channel = 'BroadcastChannel' in window ? new BroadcastChannel('damplog') :
 
 let state = { home: core.cleanHome(), issues: [], entries: [], photos: [] };
 let askedToPersist = false;
+let aiConfig = ai.cleanAiConfig();
+
+// Saving the whole record at once (sample, restore) must not drop the AI key.
+const aiMeta = () => (aiConfig.provider ? [{ id: 'ai', ...aiConfig }] : []);
 
 /* ---------- helpers ---------- */
 
@@ -190,6 +195,8 @@ function renderChrome(active) {
   sidebarFoot.replaceChildren(
     h('div', { class: 'foot-item' }, icon('shield', 16), h('span', {}, 'Your record stays on this device')),
     h('div', { class: 'foot-item' }, icon('wifiOff', 16), h('span', {}, 'Works offline')),
+    h('a', { class: `foot-item${aiConfig.provider ? ' on' : ''}`, href: '#/settings?section=ai' }, icon('sparkle', 16),
+      h('span', {}, aiConfig.provider ? `AI help on · ${aiConfig.model}` : 'AI help off')),
   );
 }
 
@@ -238,7 +245,7 @@ async function loadSample() {
     photos.push({ id: p.id, issueId: p.issueId, blob, takenAt: p.takenAt, width: 1200, height: 900 });
   }
   const home = core.cleanHome({ ...data.home, sample: true });
-  await db.save({ issues: data.issues, entries: data.entries, photos, meta: [{ id: 'home', ...home }] }, { replace: true });
+  await db.save({ issues: data.issues, entries: data.entries, photos, meta: [{ id: 'home', ...home }, ...aiMeta()] }, { replace: true });
   forgetPhotos();
   state = { home, issues: data.issues, entries: data.entries, photos };
   channel?.postMessage('changed');
@@ -590,6 +597,40 @@ function viewAdd(issueId, params) {
   const textArea = h('textarea', { name: 'text', rows: 4 }, editing?.text ?? params.get('note') ?? '');
   const problems = h('div', { class: 'problems' });
 
+  // AI help: describe the photos, then the tenant edits and accepts the text into the notes.
+  const aiBox = h('div', { class: 'ai-slot' });
+  const describe = (e) => act(async () => {
+    aiReady();
+    const blobs = [...keptPhotos.map(findPhoto).filter(Boolean).map((p) => p.blob), ...chosen.map((c) => c.blob)];
+    if (!blobs.length) throw new Error('Add a photo first, then ask AI to describe it.');
+    const button = e.currentTarget;
+    button.disabled = true;
+    aiBox.replaceChildren(aiPanel('Describing your photos', `${plural(Math.min(blobs.length, 4), 'photo')} sent to ${ai.PROVIDERS[aiConfig.provider].name}`, aiWorking('Looking at the photos…')));
+    try {
+      const images = await Promise.all(blobs.slice(0, 4).map(async (b) => ({ mediaType: b.type || 'image/jpeg', base64: await ai.blobToBase64(b) })));
+      const out = h('textarea', { class: 'ai-text', rows: 4, readonly: true, 'aria-label': 'AI description' });
+      aiBox.replaceChildren(aiPanel('Suggested description', 'Check every word against your photos. Change anything that is not right.', out));
+      const text = await ai.stream(aiConfig, ai.describeInput({ images, kind: core.KINDS[issue.kind].label, room: issue.room, note: textArea.value }), (t) => { out.value = t; });
+      out.value = text;
+      out.readOnly = false;
+      out.rows = Math.min(8, Math.max(4, Math.ceil(text.length / 70)));
+      out.closest('.ai-review').append(h('div', { class: 'actions' },
+        btn('Add to my notes', { icon: 'check', kind: 'primary', size: 'sm', onclick: () => {
+          textArea.value = [textArea.value.trim(), out.value.trim()].filter(Boolean).join('\n\n');
+          aiBox.replaceChildren();
+          toast('Added to your notes. Read them once more before saving.');
+        } }),
+        btn('Discard', { kind: 'ghost', size: 'sm', onclick: () => aiBox.replaceChildren() })));
+    } catch (err) {
+      aiBox.replaceChildren(notice('bad', 'alert', err.message));
+    } finally {
+      button.disabled = false;
+    }
+  });
+  const aiRow = aiConfig.provider
+    ? h('div', { class: 'ai-row' }, btn('Describe photos with AI', { icon: 'sparkle', size: 'sm', onclick: describe }), h('small', { class: 'hint' }, 'A short, factual description for the record. You check it first.'))
+    : h('small', { class: 'hint ai-row' }, 'Tip: connect ', h('a', { href: '#/settings?section=ai' }, 'AI help'), ' to have your photos described for the record.');
+
   const kept = h('div', { class: 'thumbs' });
   const paintKept = () => kept.replaceChildren(...keptPhotos.map(findPhoto).filter(Boolean).map((p, i) => h('div', { class: 'thumb' },
     h('img', { src: photoUrl(p), alt: `Saved photo ${i + 1}` }),
@@ -622,6 +663,8 @@ function viewAdd(issueId, params) {
     outcomeField,
     field('Notes', textArea),
     group('Photos', h('div', { class: 'stack tight' }, keptPhotos.length > 0 && kept, picker)),
+    aiRow,
+    aiBox,
     problems,
     h('div', { class: 'actions' },
       btn(editing ? 'Save changes' : 'Add to the record', { icon: 'check', kind: 'primary', type: 'submit' }),
@@ -702,9 +745,50 @@ function viewLetters(id, params) {
     await navigator.clipboard.writeText(whole());
     toast('Letter copied. Paste it into an email or your landlord\'s online form.');
   });
-  const email = state.home.landlordEmail
-    ? `mailto:${encodeURIComponent(state.home.landlordEmail)}?subject=${encodeURIComponent(subject.value)}&body=${encodeURIComponent(body.value)}`
-    : null;
+  // Built on click, so edits to the letter go into the email.
+  const email = state.home.landlordEmail && (() => {
+    location.href = `mailto:${encodeURIComponent(state.home.landlordEmail)}?subject=${encodeURIComponent(subject.value)}&body=${encodeURIComponent(body.value)}`;
+  });
+
+  // AI help: a tighter version, shown word by word against the original and checked
+  // in code for dropped or invented dates, references, names and legal claims.
+  const aiBox = h('div', { class: 'ai-slot' });
+  const tighten = (e) => act(async () => {
+    aiReady();
+    const original = body.value;
+    const button = e.currentTarget;
+    button.disabled = true;
+    const out = h('div', { class: 'ai-diff' });
+    aiBox.replaceChildren(aiPanel('Tightening your letter', `Sent to ${ai.PROVIDERS[aiConfig.provider].name}`, aiWorking('Rewriting…'), out));
+    try {
+      const revised = await ai.stream(aiConfig, ai.tightenInput(original), (t) => { out.textContent = t; });
+      const keep = [state.home.tenantName, state.home.address, state.home.landlordName, state.home.tenancyRef].filter(Boolean);
+      const check = ai.checkLetter(original, revised, keep);
+      out.replaceChildren(...ai.diffWords(original, revised).map((d) => (d.type === 'same' ? d.text : h(d.type === 'add' ? 'ins' : 'del', {}, d.text))));
+      const problemsFound = [
+        ...check.missing.map((f) => `Left out: ${f}`),
+        ...check.added.map((f) => `Added: ${f}`),
+        ...check.claims.map((w) => `New legal wording: "${w}"`),
+      ];
+      const use = () => {
+        body.value = revised;
+        aiBox.replaceChildren();
+        toast('Letter updated. Read it once more before you send it.');
+      };
+      aiBox.replaceChildren(aiPanel('Suggested changes', 'Green is added, red is removed. Check every change before you use it.',
+        check.ok
+          ? notice('ok', 'check', 'Every date, reference and name in your letter is still there, and nothing new was added.')
+          : notice('bad', 'alert', h('strong', {}, 'Check these before using this version:'), h('ul', {}, problemsFound.map((p) => h('li', {}, p)))),
+        out,
+        h('div', { class: 'actions' },
+          btn(check.ok ? 'Use this version' : 'Use it anyway', { icon: 'check', kind: check.ok ? 'primary' : '', size: 'sm', onclick: use }),
+          btn('Keep my version', { kind: check.ok ? 'ghost' : 'primary', size: 'sm', onclick: () => aiBox.replaceChildren() }))));
+    } catch (err) {
+      aiBox.replaceChildren(notice('bad', 'alert', err.message));
+    } finally {
+      button.disabled = false;
+    }
+  });
   const printLetter = () => {
     const sheet = h('div', { class: 'print-letter' }, h('pre', {}, body.value));
     document.body.append(sheet);
@@ -726,10 +810,13 @@ function viewLetters(id, params) {
         field('Subject', subject),
         field('Letter', body, 'Edit anything that is not right before you send it.'),
         h('div', { class: 'actions' },
-          email && btn('Open in email', { icon: 'mail', kind: 'primary', href: email }),
+          email && btn('Open in email', { icon: 'mail', kind: 'primary', onclick: email }),
           btn('Copy', { icon: 'copy', kind: email ? '' : 'primary', onclick: copy }),
           btn('Download', { icon: 'download', onclick: () => download(`damplog-${kind}-${today().date}.txt`, whole(), 'text/plain') }),
-          btn('Print', { icon: 'print', onclick: printLetter }))),
+          btn('Print', { icon: 'print', onclick: printLetter }),
+          aiConfig.provider && btn('Tighten with AI', { icon: 'sparkle', kind: 'ghost', onclick: tighten })),
+        !aiConfig.provider && h('small', { class: 'hint' }, 'Tip: connect ', h('a', { href: '#/settings?section=ai' }, 'AI help'), ' to make your letter clearer, with every change shown for you to check.'),
+        aiBox),
       h('div', { class: 'stack' },
         card('',
           cardHead('After you send it', { iconName: 'check' }),
@@ -875,7 +962,7 @@ function viewSettings() {
     const data = core.readBackup(await file.text(), ctx());
     if (!confirm(`Replace everything on this device with the backup (${plural(data.issues.length, 'problem')}, ${plural(data.photos.length, 'photo')})?`)) return;
     const photos = data.photos.map((p) => ({ id: p.id, issueId: p.issueId, takenAt: p.takenAt, width: p.width, height: p.height, blob: dataUrlToBlob(p.dataUrl) }));
-    await db.save({ issues: data.issues, entries: data.entries, photos, meta: [{ id: 'home', ...data.home }] }, { replace: true });
+    await db.save({ issues: data.issues, entries: data.entries, photos, meta: [{ id: 'home', ...data.home }, ...aiMeta()] }, { replace: true });
     forgetPhotos();
     state = { home: data.home, issues: data.issues, entries: data.entries, photos };
     channel?.postMessage('changed');
@@ -885,9 +972,10 @@ function viewSettings() {
 
   const erase = () => act(async () => {
     const wasSample = state.home.sample;
-    const what = wasSample ? 'Clear the sample data?' : 'Erase your whole record from this device, including every photo? This cannot be undone.\n\nDownload a backup first if you might need it.';
+    const what = wasSample ? 'Clear the sample data?' : 'Erase your whole record from this device, including every photo and your AI key? This cannot be undone.\n\nDownload a backup first if you might need it.';
     if (!confirm(what)) return;
-    await db.save({}, { replace: true });
+    await db.save({ meta: wasSample ? aiMeta() : [] }, { replace: true });
+    if (!wasSample) aiConfig = ai.cleanAiConfig();
     forgetPhotos();
     state = { home: core.cleanHome(), issues: [], entries: [], photos: [] };
     channel?.postMessage('changed');
@@ -905,8 +993,10 @@ function viewSettings() {
   return h('div', { class: 'page' },
     pageHead('Settings', 'Everything is stored in this browser on this device. Nothing is uploaded.'),
     h('div', { class: 'grid-2' },
-      section('home', '', cardHead('Your home', { iconName: 'home', sub: 'Used in letters and the evidence report' }),
-        homeForm({ submitText: 'Save', onSaved: () => { toast('Saved.'); render(); } })),
+      h('div', { class: 'stack' },
+        section('home', '', cardHead('Your home', { iconName: 'home', sub: 'Used in letters and the evidence report' }),
+          homeForm({ submitText: 'Save', onSaved: () => { toast('Saved.'); render(); } })),
+        aiSettingsCard()),
       h('div', { class: 'stack' },
         section('backup', '',
           cardHead('Backup', { iconName: 'shield', sub: last ? `Last backup ${fmtDate(last.slice(0, 10))}` : 'No backup yet' }),
@@ -920,12 +1010,104 @@ function viewSettings() {
           h('ul', { class: 'tips' },
             h('li', {}, 'No account, no server, no tracking. DampLog is a web page that saves to your browser.'),
             h('li', {}, 'Photos are shrunk and stored on this device only.'),
-            h('li', {}, 'Letters only leave the device when you send them yourself.'))),
+            h('li', {}, 'Letters only leave the device when you send them yourself.'),
+            h('li', {}, 'AI help is optional. A photo or letter is only sent to your AI provider when you press an AI button.'))),
         section('erase', 'danger-zone',
           cardHead(state.home.sample ? 'Clear sample data' : 'Erase everything', { iconName: 'trash' }),
-          h('p', { class: 'muted' }, state.home.sample ? 'Removes the sample problems so you can start your own record.' : 'Removes every problem, entry and photo from this device.'),
+          h('p', { class: 'muted' }, state.home.sample ? 'Removes the sample problems so you can start your own record.' : 'Removes every problem, entry and photo, and your AI key, from this device.'),
           btn(state.home.sample ? 'Clear sample data' : 'Erase all data', { icon: 'trash', kind: 'danger', onclick: erase })))),
     scopeNote());
+}
+
+function aiSettingsCard() {
+  const keyInput = h('input', { type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: 'Paste your API key', value: aiConfig.apiKey, 'aria-label': 'API key' });
+  const toggle = btn('', { icon: 'eye', kind: 'ghost', title: 'Show or hide the key', onclick: () => { keyInput.type = keyInput.type === 'password' ? 'text' : 'password'; } });
+  const detected = h('small', { class: 'hint' });
+  const modelInput = h('input', { list: 'ai-models', autocomplete: 'off', spellcheck: 'false', value: aiConfig.model, 'aria-label': 'Model' });
+  const models = h('datalist', { id: 'ai-models' });
+  const status = h('div', { 'aria-live': 'polite' });
+
+  const sync = () => {
+    const raw = keyInput.value.trim();
+    const p = ai.detectProvider(raw);
+    detected.textContent = p ? `${ai.PROVIDERS[p].name} key.` : raw ? 'This does not look like an OpenAI key (sk-…) or a Claude key (sk-ant-…).' : 'Works with OpenAI and Claude keys.';
+    detected.className = `hint${raw && !p ? ' error' : ''}`;
+    models.replaceChildren(...(p ? ai.PROVIDERS[p].models : []).map((m) => h('option', { value: m })));
+    if (p && (!modelInput.value.trim() || !ai.modelFits(p, modelInput.value))) modelInput.value = ai.PROVIDERS[p].defaultModel;
+  };
+  keyInput.addEventListener('input', sync);
+  sync();
+
+  const read = () => {
+    if (!ai.detectProvider(keyInput.value)) throw new RangeError('Paste an OpenAI key (it starts with sk-) or a Claude key (it starts with sk-ant-).');
+    return ai.cleanAiConfig({ apiKey: keyInput.value, model: modelInput.value });
+  };
+  const save = () => act(async () => {
+    const cfg = read();
+    await db.saveAi(cfg);
+    aiConfig = cfg;
+    channel?.postMessage('changed');
+    toast('AI help connected. The key is saved only in this browser.');
+    render();
+  });
+  const test = () => act(async () => {
+    const cfg = read();
+    status.replaceChildren(h('div', { class: 'notice' }, h('span', { class: 'spinner sm' }), h('div', {}, `Testing ${cfg.model}…`)));
+    try {
+      await ai.testConnection(cfg);
+      status.replaceChildren(notice('ok', 'check', `Connected to ${ai.PROVIDERS[cfg.provider].name} (${cfg.model}). Save to use it.`));
+    } catch (err) {
+      status.replaceChildren(notice('bad', 'alert', err.message));
+    }
+  });
+  const remove = () => act(async () => {
+    await db.save({}, { remove: { meta: ['ai'] } });
+    aiConfig = ai.cleanAiConfig();
+    channel?.postMessage('changed');
+    toast('AI key removed from this browser.');
+    render();
+  });
+
+  const el = card('ai-settings',
+    cardHead('AI help', { iconName: 'sparkle', sub: aiConfig.provider ? `On · ${ai.PROVIDERS[aiConfig.provider].name} · ${aiConfig.model}` : 'Optional · off' }),
+    h('p', { class: 'muted' }, 'AI can describe your photos for the record and tighten your letters. You check every word before anything is saved or sent.'),
+    h('div', { class: 'form plain' },
+      h('div', { class: 'field' },
+        h('span', { class: 'field-label' }, 'API key'),
+        h('div', { class: 'input-group' }, keyInput, toggle),
+        detected),
+      field('Model', modelInput, 'The default is a good choice. Change it only if your account uses a different model.'),
+      models,
+      h('div', { class: 'actions' },
+        btn('Save', { icon: 'check', kind: 'primary', onclick: save }),
+        btn('Test connection', { icon: 'refresh', onclick: test }),
+        aiConfig.provider && btn('Remove key', { icon: 'trash', kind: 'ghost', onclick: remove })),
+      status),
+    h('div', { class: 'privacy' },
+      h('strong', {}, 'How it works'),
+      h('ul', {},
+        h('li', {}, 'Your key is saved only in this browser. It is never put in backups and never sent anywhere except your AI provider.'),
+        h('li', {}, 'Only when you press an AI button, the photos of that entry, or the letter on screen, go straight to your provider. Usage is billed to your account.'),
+        h('li', {}, 'Nothing the AI writes is saved or sent until you have checked it.')),
+      h('p', { class: 'small' }, 'Get a key: ',
+        h('a', { href: ai.PROVIDERS.openai.keysUrl, target: '_blank', rel: 'noopener noreferrer' }, 'OpenAI'), ' or ',
+        h('a', { href: ai.PROVIDERS.anthropic.keysUrl, target: '_blank', rel: 'noopener noreferrer' }, 'Claude'), '.')));
+  el.id = 'ai';
+  return el;
+}
+
+/** The box where AI output waits for the tenant's decision. */
+function aiPanel(title, sub, ...content) {
+  return h('div', { class: 'ai-review' },
+    h('div', { class: 'ai-review-head' }, h('span', { class: 'ai-tag' }, 'AI'), h('div', {}, h('strong', {}, title), h('small', {}, sub))),
+    ...content);
+}
+
+const aiWorking = (text) => h('div', { class: 'thinking' }, h('span', { class: 'spinner sm' }), h('span', {}, text));
+
+function aiReady() {
+  if (!aiConfig.provider) throw new Error('Connect AI help in Settings first.');
+  if (!navigator.onLine) throw new Error('You are offline. AI help needs an internet connection.');
 }
 
 function notFound() {
@@ -992,6 +1174,7 @@ channel?.addEventListener('message', () => act(async () => {
 
 async function loadState() {
   const data = await db.loadAll();
+  aiConfig = ai.cleanAiConfig(data.ai);
   return { home: core.cleanHome(data.home), issues: data.issues, entries: data.entries, photos: data.photos };
 }
 

@@ -7,6 +7,7 @@ const SHELL = [
   'index.html',
   'css/styles.css',
   'js/app.js',
+  'js/ai.js',
   'js/core.js',
   'js/db.js',
   'js/icons.js',

@@ -746,3 +746,20 @@ table.kv td { padding: 4px 0; }
 }
 
 .card.table-card { padding: 0; gap: 0; }
+
+/* AI help: suggestions wait in a marked box until the tenant accepts them */
+.ai-settings .card-head h2::after { content: "AI"; margin-left: 8px; padding: 1px 6px; border-radius: 4px; vertical-align: 2px; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.04em; color: var(--ai); background: var(--ai-soft); }
+.ai-settings .card-icon { background: var(--ai-soft); color: var(--ai); }
+.ai-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ai-row .btn .icon, .actions .btn .icon[data-ai] { color: var(--ai); }
+.ai-slot:empty { display: none; }
+.ai-review { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--ai) 30%, var(--line)); border-left: 3px solid var(--ai); border-radius: 10px; background: color-mix(in srgb, var(--ai-soft) 55%, var(--surface)); }
+.ai-review-head { display: flex; gap: 10px; align-items: flex-start; }
+.ai-review-head div { display: flex; flex-direction: column; }
+.ai-review-head small { color: var(--muted); font-size: 0.8rem; }
+.ai-tag { flex: none; padding: 1px 6px; border-radius: 4px; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.04em; color: #fff; background: var(--ai); margin-top: 2px; }
+.ai-text { background: var(--surface); }
+.ai-diff { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; font-size: 0.9rem; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); max-height: 460px; overflow-y: auto; }
+.ai-diff ins { text-decoration: none; background: var(--ok-soft); color: var(--ok); border-radius: 3px; }
+.ai-diff del { background: var(--bad-soft); color: var(--bad); border-radius: 3px; }
+.ai-diff ins, .ai-diff del { padding: 0 2px; margin: 0 1px; }

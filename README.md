@@ -29,6 +29,7 @@ The deadlines only help a tenant who can show when the landlord was told and wha
 - **Deadline tracker.** Once a problem is recorded as reported, DampLog works out each deadline under the regulations and shows whether the landlord is on time, late or overdue.
 - **Letters.** One tap builds a letter to report the problem, chase a missed deadline or make a formal complaint, filled in from the record. You can edit it, copy it, email it or print it.
 - **Evidence report.** A printable pack with the summary, deadlines, full timeline and numbered photos, ready for a complaint, the Housing Ombudsman or an adviser.
+- **Optional AI help.** With the tenant's own OpenAI or Claude key, AI describes photos factually for the record and tightens letters. Nothing the AI writes is saved until the tenant accepts it. Letter changes are shown word by word, and code checks that no date, reference or name was dropped or invented and that no legal threat was added.
 - **Your rights.** A plain-English summary of the deadlines and the route if a landlord does not act, with links to the official guidance.
 - **Private renters.** For private landlords, the same steps are tracked without legal due dates, because Awaab's Law does not apply to private renting yet.
 
@@ -48,17 +49,18 @@ The day the landlord is told is day zero, and day one is the next working day. W
 
 ## Privacy
 
-There is no account, no server and no tracking. The record, including every photo, is stored in the browser's IndexedDB on the tenant's device. Letters only leave the device when the tenant sends them. A backup file, with photos included, can be downloaded and restored on another device.
+There is no account, no server and no tracking. The record, including every photo, is stored in the browser's IndexedDB on the tenant's device. Letters only leave the device when the tenant sends them. AI help is off unless the tenant adds their own key; then only the photos of one entry, or the letter on screen, go to the provider, and only when an AI button is pressed. The key is never put in backups. A backup file, with photos included, can be downloaded and restored on another device.
 
 ## Technical architecture
 
 - A static progressive web app: plain HTML, CSS and JavaScript modules, with no build step and no dependencies.
 - `js/core.js` holds the rules: working days, deadlines, validation and backups. It has no DOM code and is unit-tested in Node.
 - `js/letters.js` builds the letters from the record.
+- `js/ai.js` sends requests straight from the browser to OpenAI or Anthropic, streams the reply, and checks rewritten letters against the original.
 - `js/db.js` stores problems, entries and photos in IndexedDB, saving each change in one transaction.
 - `js/photos.js` resizes photos on the device before saving them.
 - `sw.js` caches the app so it opens without a connection.
-- A strict Content Security Policy allows no third-party scripts or network calls.
+- A strict Content Security Policy allows no third-party scripts, and network calls only to the two AI providers.
 
 ## Run it locally
 
@@ -74,7 +76,7 @@ Then open http://localhost:8080. Choose **Try it with sample data** to see a wor
 npm test
 ```
 
-The tests cover working days across Christmas and Easter, every deadline and status, the 24-hour emergency clock, private landlords, validation, backups and the letter wording.
+The tests cover working days across Christmas and Easter, every deadline and status, the 24-hour emergency clock, private landlords, validation, backups, the letter wording, the AI requests for both providers, and the check that catches a rewritten letter dropping or inventing facts.
 
 ## Limitations
 
@@ -86,7 +88,6 @@ The tests cover working days across Christmas and Easter, every deadline and sta
 ## Roadmap
 
 - Track the further hazards the government is adding to Awaab's Law in 2026 and 2027.
-- Optional AI help to describe photos and tighten letters, with the tenant checking every word.
 - Export the evidence report straight to PDF.
 - Translations, starting with the languages the government guidance is published in.
 
