@@ -32,10 +32,10 @@ The deadlines only help a tenant who can show when the landlord was told and wha
 ## What DampLog does
 
 - **Dated evidence.** Photos, notes, calls, visits, missed appointments and effects on health, in one timeline per problem. Photos are shrunk and stored on the device.
-- **Deadline tracker.** Once a problem is recorded as reported, DampLog works out each deadline under the regulations and shows whether the landlord is on time, late or overdue.
+- **The landlord's clock.** Once a problem is recorded as reported, DampLog works out each deadline under the regulations and shows it as a clock: one cell per working day, with the days past the deadline in red.
 - **Letters.** One tap builds a letter to report the problem, chase a missed deadline or make a formal complaint, filled in from the record. You can edit it, copy it, email it or print it.
 - **Evidence report.** A printable pack with the summary, deadlines, full timeline and numbered photos, ready for a complaint, the Housing Ombudsman or an adviser.
-- **An assistant that knows your case.** Ask "What should I do next?" and it answers from your own record: the timeline, and the deadlines DampLog has already worked out, so it never invents dates. It never sees your photos.
+- **Probe, the case assistant.** A little damp meter with a screen face. It reads your record and tells you the next move on its own, with no AI needed. Add your own AI key and you can ask it anything: answers come from your timeline and the deadlines DampLog has worked out, with buttons that open the right screen. It never sees your photos.
 - **Optional AI help.** With the tenant's own OpenAI or Claude key, AI describes photos factually for the record and tightens letters. Nothing the AI writes is saved until the tenant accepts it. Letter changes are shown word by word, and code checks that no date, reference or name was dropped or invented and that no legal threat was added.
 - **Your rights.** A plain-English summary of the deadlines and the route if a landlord does not act, with links to the official guidance.
 - **Private renters.** For private landlords, the same steps are tracked without legal due dates, because Awaab's Law does not apply to private renting yet.
@@ -45,14 +45,15 @@ The deadlines only help a tenant who can show when the landlord was told and wha
 | A problem's timeline and the landlord's deadlines | The printable evidence report |
 | --- | --- |
 | ![Timeline with photos, and the deadline tracker showing a missed investigation](docs/problem.jpg) | ![Evidence report with summary, deadline table and timeline](docs/report.jpg) |
-| **The assistant answers from your record** | **AI tightens a letter, every change shown and fact-checked** |
-| ![The assistant explaining a missed deadline and the next steps](docs/assistant.jpg) | ![Word-by-word changes to a letter, with the fact check passed](docs/ai-letter.jpg) |
+| **Probe answers from your record, with buttons to act** | **AI tightens a letter, every change shown and fact-checked** |
+| ![Probe explaining a missed deadline, with buttons to write the chase letter and log contact](docs/assistant.jpg) | ![Word-by-word changes to a letter, with the fact check passed](docs/ai-letter.jpg) |
 | **AI describes the photos, you check the words** | |
 | ![AI photo description waiting in a review box](docs/ai-photo.jpg) | |
 
 <div align="center">
 <img src="docs/phone-overview.jpg" alt="DampLog overview on a phone" width="260">&nbsp;&nbsp;
-<img src="docs/phone-problem.jpg" alt="A problem's timeline on a phone" width="260">
+<img src="docs/phone-problem.jpg" alt="A problem's clock and timeline on a phone" width="260">&nbsp;&nbsp;
+<img src="docs/phone-probe.jpg" alt="Probe on a phone" width="260">
 </div>
 
 The screenshots use the built-in sample data. The sample photos are drawn by the app, not taken in a real home.

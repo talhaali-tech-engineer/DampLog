@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   addWorkingDays, workingDaysBetween, isWorkingDay, deadlines, issueSummary, sortSummaries,
-  cleanEntry, cleanIssue, entryProblems, cleanHome, makeBackup, readBackup,
+  cleanEntry, cleanIssue, entryProblems, cleanHome, makeBackup, readBackup, caseClock,
 } from '../js/core.js';
 
 let n = 0;
@@ -140,4 +140,44 @@ test('issues get a readable title when none is given', () => {
   assert.equal(cleanIssue({ kind: 'leak', room: 'Bathroom' }, ctx).title, 'Leak in the bathroom');
   assert.equal(cleanIssue({ kind: 'damp-mould', room: 'Whole home' }, ctx).title, 'Damp and mould in the home');
   assert.equal(cleanIssue({ kind: 'other', title: 'Broken boiler' }, ctx).title, 'Broken boiler');
+});
+
+test('the clock shows each working day, and the days past the deadline', () => {
+  const s = issueSummary(issue(), [entry('reported', '2026-10-01T10:00')], 'social', today('2026-10-20'));
+  const c = caseClock(s, today('2026-10-20'));
+  assert.equal(c.mode, 'days');
+  assert.equal(c.step.key, 'investigation');
+  assert.equal(c.allowed, 10);
+  assert.equal(c.elapsed, 13);
+  assert.equal(c.overdueBy, 3);
+  assert.equal(c.days.length, 13);
+  assert.deepEqual(c.days.filter((x) => x.state === 'late').map((x) => x.date), ['2026-10-16', '2026-10-19', '2026-10-20']);
+  assert.equal(c.days.find((x) => x.due).date, '2026-10-15');
+  assert.equal(c.days.at(-1).today, true);
+});
+
+test('before the deadline the remaining days are still to come', () => {
+  const s = issueSummary(issue(), [entry('reported', '2026-10-01T10:00')], 'social', today('2026-10-06'));
+  const c = caseClock(s, today('2026-10-06'));
+  assert.equal(c.elapsed, 3);
+  assert.equal(c.days.length, 10);
+  assert.equal(c.days.filter((x) => x.state === 'left').length, 7);
+  assert.equal(c.overdueBy, 0);
+});
+
+test('the clock restarts from the investigation for the next steps', () => {
+  const entries = [entry('reported', '2026-10-01T10:00'), entry('investigation', '2026-10-14T09:00')];
+  const c = caseClock(issueSummary(issue(), entries, 'social', today('2026-10-16')), today('2026-10-16'));
+  assert.equal(c.step.key, 'summary');
+  assert.equal(c.start, '2026-10-14');
+  assert.equal(c.allowed, 3);
+});
+
+test('the clock has nothing to count before reporting, after fixing, or for emergencies', () => {
+  assert.equal(caseClock(issueSummary(issue(), [], 'social', today('2026-10-20')), today('2026-10-20')).mode, 'not-started');
+  const fixed = cleanIssue({ id: 'i1', kind: 'leak', closedAt: '2026-10-10' }, ctx);
+  assert.equal(caseClock(issueSummary(fixed, [], 'social', today('2026-10-20')), today('2026-10-20')).mode, 'fixed');
+  const e = issueSummary(issue('emergency'), [entry('reported', '2026-10-20T09:00')], 'social', today('2026-10-20', '10:00'));
+  assert.equal(caseClock(e, today('2026-10-20', '10:00')).mode, 'long');
+  assert.equal(caseClock(issueSummary(issue(), [entry('reported', '2026-10-01T10:00')], 'private', today('2026-10-20')), today('2026-10-20')).mode, 'no-deadlines');
 });

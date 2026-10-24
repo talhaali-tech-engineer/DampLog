@@ -284,3 +284,36 @@ export function readBackup(json, ctx) {
   });
   return { home: cleanHome(data.home), issues, entries, photos };
 }
+
+/* ---------- the landlord's clock ---------- */
+
+const MAX_CELLS = 30;
+
+/**
+ * The deadline that matters now for one problem, as a strip of working days:
+ * 'used' days are inside the deadline, 'left' days are still to come, and 'late'
+ * days have passed the deadline. Emergency hazards and the 12-week works step are
+ * not counted in working days, so they come back without a strip.
+ */
+export function caseClock(summary, today) {
+  const d = summary.deadlines;
+  if (summary.fixed) return { mode: 'fixed' };
+  if (!d.reportedAt) return { mode: 'not-started' };
+  const step = d.overdue[0] ?? d.next;
+  if (!step) return { mode: d.statutory ? 'waiting' : 'no-deadlines' };
+  if (step.dueAt || step.key === 'works') return { mode: 'long', step, due: step.dueAt ?? step.due, overdue: step.status === 'overdue' };
+
+  const investigated = summary.entries.find((e) => e.type === 'investigation');
+  const start = step.key === 'investigation' ? dateOf(d.reportedAt) : dateOf(investigated.at);
+  const allowed = workingDaysBetween(start, step.due);
+  const elapsed = Math.max(0, workingDaysBetween(start, today.date));
+  const end = step.due > today.date ? step.due : today.date;
+  let days = [];
+  for (let day = addDays(start, 1); day <= end; day = addDays(day, 1)) {
+    if (!isWorkingDay(day)) continue;
+    days.push({ date: day, state: day > today.date ? 'left' : day > step.due ? 'late' : 'used', due: day === step.due, today: day === today.date });
+  }
+  const truncated = days.length > MAX_CELLS;
+  if (truncated) days = days.slice(-MAX_CELLS);
+  return { mode: 'days', step, start, due: step.due, allowed, elapsed, overdueBy: Math.max(0, elapsed - allowed), days, truncated };
+}

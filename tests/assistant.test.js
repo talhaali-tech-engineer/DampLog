@@ -53,3 +53,28 @@ test('conversations go to either provider with the whole history', () => {
   assert.equal(a.body.messages.length, 3);
   assert.equal(a.body.stream, true);
 });
+
+test('Probe reads the next steps from the record without AI', async () => {
+  const { nextSteps } = await import('../js/assistant.js');
+  const late = issueSummary(issue, entries, 'social', today);
+  const steps = nextSteps(home('social'), [late], today);
+  assert.equal(steps[0].tone, 'bad');
+  assert.equal(steps[0].title, 'Chase your landlord: they are 6 working days late');
+  assert.equal(steps[0].action.href, '#/letters/i1?kind=chase');
+  const chased = issueSummary(issue, [...entries, cleanEntry({ issueId: 'i1', type: 'contact', at: '2026-10-20T09:00', text: 'Chased' }, ctx)], 'social', today);
+  assert.equal(nextSteps(home('social'), [chased], today)[0].title, 'Make a formal complaint');
+  const fresh = issueSummary(issue, entries.slice(0, 1), 'social', today);
+  assert.equal(nextSteps(home('social'), [fresh], today)[0].action.href, '#/letters/i1?kind=report');
+  assert.ok(nextSteps(home('social'), [fresh], today).some((x) => x.title === 'Back up your record'));
+});
+
+test('action buttons are read from the last line of the AI reply', async () => {
+  const { splitActions, assistantSystem: sys } = await import('../js/assistant.js');
+  assert.deepEqual(splitActions('Send it today.\n\nACTIONS: chase-letter, log-contact'), { text: 'Send it today.', actions: ['chase-letter', 'log-contact'] });
+  assert.deepEqual(splitActions('Fine.\nACTIONS: none'), { text: 'Fine.', actions: [] });
+  assert.deepEqual(splitActions('Half way\nACTIO'), { text: 'Half way', actions: [] });
+  assert.deepEqual(splitActions('No line at all'), { text: 'No line at all', actions: [] });
+  assert.deepEqual(splitActions('x\nACTIONS: delete-everything, your-rights'), { text: 'x', actions: ['your-rights'] });
+  assert.match(sys('R'), /You are Probe/);
+  assert.match(sys('R'), /ACTIONS: none/);
+});

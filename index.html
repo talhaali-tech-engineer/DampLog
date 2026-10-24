@@ -6,10 +6,9 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self' https://api.openai.com https://api.anthropic.com; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>DampLog</title>
   <meta name="description" content="Free evidence log for damp, mould and repairs in rented homes. Tracks Awaab's Law deadlines and writes your letters. Works offline; your record stays on your device.">
-  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#1a1d1b" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#0a0e13">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="DampLog">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
@@ -19,14 +18,12 @@
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
-  <header class="topbar" id="topbar">
-    <div class="topbar-inner">
-      <a class="brand" href="#/home"><img src="icons/icon.svg" alt="" width="30" height="30"><span>DampLog</span></a>
-      <nav class="nav" id="nav" aria-label="Main"></nav>
-      <div class="top-actions" id="top-actions"></div>
-    </div>
-  </header>
-  <main id="main" tabindex="-1"><p class="loading">Loading…</p></main>
+  <aside class="rail" id="rail" aria-label="Main"></aside>
+  <div class="stage">
+    <header class="mobile-top" id="mobile-top"></header>
+    <main id="main" tabindex="-1"><p class="loading">Loading…</p></main>
+  </div>
+  <nav class="dock" id="dock" aria-label="Main"></nav>
   <div id="toast" class="toasts" role="status" aria-live="polite"></div>
   <noscript><p class="noscript">DampLog needs JavaScript turned on.</p></noscript>
 </body>

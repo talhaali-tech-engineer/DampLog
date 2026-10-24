@@ -69,7 +69,7 @@ export function download(filename, content, type) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/* ---------- the assistant: a small house with a face ---------- */
+/* ---------- Probe: the assistant, drawn as a damp meter ---------- */
 
 function svg(tag, attrs = {}, ...children) {
   const el = document.createElementNS(SVG_NS, tag);
@@ -79,27 +79,34 @@ function svg(tag, attrs = {}, ...children) {
 }
 
 /**
- * States (animated in CSS): 'idle' breathes, blinks and puffs from the chimney,
- * 'thinking' scans its eyes, 'talking' moves its mouth.
+ * A moisture meter with an LCD face and two metal probes. Moods (animated in CSS):
+ * 'idle' blinks and pulses its probe tips, 'thinking' takes a reading with bouncing
+ * bars, 'talking' shows a waveform mouth, and 'alert' turns the screen red when a
+ * landlord is late. Colours live in CSS so the screen can change with the mood.
  */
-export function bot(size = 40, state = 'idle') {
-  const body = '#0f766e';
-  const face = '#ecfdf5';
-  const features = '#134e4a';
-  return svg('svg', { viewBox: '0 0 64 64', width: size, height: size, class: `bot ${state}`, 'aria-hidden': 'true', focusable: 'false' },
-    svg('circle', { class: 'bot-puff', cx: 45, cy: 7, r: 3, fill: '#99f6e4' }),
-    svg('g', { class: 'bot-body' },
-      svg('rect', { x: 41, y: 11, width: 7, height: 12, rx: 1.5, fill: '#115e59' }),
-      svg('path', { d: 'M32 8.5 55 27v24.5a6 6 0 0 1-6 6H15a6 6 0 0 1-6-6V27z', fill: body, stroke: body, 'stroke-width': 3, 'stroke-linejoin': 'round' }),
-      svg('rect', { x: 16, y: 30, width: 32, height: 21, rx: 7, fill: face }),
-      svg('g', { class: 'bot-eyes' },
-        svg('rect', { class: 'bot-eye', x: 23, y: 35, width: 5, height: 8, rx: 2.5, fill: features }),
-        svg('rect', { class: 'bot-eye', x: 36, y: 35, width: 5, height: 8, rx: 2.5, fill: features })),
-      svg('path', { class: 'bot-mouth', d: 'M29 46.5 Q32 48.6 35 46.5', stroke: features, 'stroke-width': 2, 'stroke-linecap': 'round', fill: 'none' })));
+export function probe(size = 44, mood = 'idle') {
+  return svg('svg', { viewBox: '0 0 64 64', width: size, height: size, class: `probe ${mood}`, 'aria-hidden': 'true', focusable: 'false' },
+    svg('g', { class: 'probe-body' },
+      svg('rect', { class: 'probe-pin', x: 22.4, y: 4, width: 3.6, height: 13, rx: 1.8 }),
+      svg('rect', { class: 'probe-pin', x: 38, y: 4, width: 3.6, height: 13, rx: 1.8 }),
+      svg('circle', { class: 'probe-tip', cx: 24.2, cy: 4.4, r: 2.6 }),
+      svg('circle', { class: 'probe-tip late', cx: 39.8, cy: 4.4, r: 2.6 }),
+      svg('rect', { class: 'probe-case', x: 9, y: 14.5, width: 46, height: 46, rx: 13 }),
+      svg('rect', { class: 'probe-screen', x: 15, y: 20.5, width: 34, height: 23, rx: 6 }),
+      svg('g', { class: 'probe-face' },
+        svg('rect', { class: 'probe-eye ink', x: 22.5, y: 25.5, width: 5, height: 7.5, rx: 2.5 }),
+        svg('rect', { class: 'probe-eye ink', x: 36.5, y: 25.5, width: 5, height: 7.5, rx: 2.5 }),
+        svg('path', { class: 'probe-mouth line', d: 'M27.5 37.4 Q32 40 36.5 37.4' })),
+      svg('g', { class: 'probe-bars' },
+        svg('rect', { class: 'ink', x: 23, y: 26, width: 4, height: 13, rx: 2 }),
+        svg('rect', { class: 'ink', x: 30, y: 26, width: 4, height: 13, rx: 2 }),
+        svg('rect', { class: 'ink', x: 37, y: 26, width: 4, height: 13, rx: 2 })),
+      svg('circle', { class: 'probe-knob', cx: 22.5, cy: 52, r: 3.4 }),
+      svg('rect', { class: 'probe-knob', x: 30, y: 49.6, width: 16, height: 4.8, rx: 2.4 })));
 }
 
-export function setBotState(el, state) {
-  el?.setAttribute('class', `bot ${state}`);
+export function setProbeMood(el, mood) {
+  el?.setAttribute('class', `probe ${mood}`);
 }
 
 /* ---------- markdown for AI replies ---------- */

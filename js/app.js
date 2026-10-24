@@ -7,12 +7,13 @@ import * as ai from './ai.js';
 import { LETTERS, buildLetter } from './letters.js';
 import { preparePhoto, photoUrl, forgetPhotos, blobToDataUrl, dataUrlToBlob } from './photos.js';
 import { sampleData, drawSample } from './sample.js';
-import { recordContext, assistantSystem, SUGGESTIONS } from './assistant.js';
-import { h, icon, bot, setBotState, renderMarkdown, fmtDate, fmtTime, plural, toast, download } from './ui.js';
+import { recordContext, assistantSystem, SUGGESTIONS, nextSteps, splitActions, ACTION_IDS } from './assistant.js';
+import { h, icon, probe, setProbeMood, renderMarkdown, fmtDate, fmtTime, plural, toast, download } from './ui.js';
 
 const main = document.getElementById('main');
-const nav = document.getElementById('nav');
-const topActions = document.getElementById('top-actions');
+const rail = document.getElementById('rail');
+const dock = document.getElementById('dock');
+const mobileTop = document.getElementById('mobile-top');
 const channel = 'BroadcastChannel' in window ? new BroadcastChannel('damplog') : null;
 
 let state = { home: core.cleanHome(), issues: [], entries: [], photos: [] };
@@ -179,31 +180,32 @@ const STEP_ENTRY = { investigation: 'investigation', summary: 'summary', 'make-s
 /* ---------- navigation chrome ---------- */
 
 const NAV = [
-  { view: 'home', text: 'Overview', icon: 'home' },
-  { view: 'assistant', text: 'Assistant', icon: 'sparkle' },
+  { view: 'home', text: 'Case', icon: 'home' },
+  { view: 'new', text: 'Log', icon: 'plus' },
   { view: 'letters', text: 'Letters', icon: 'mail' },
-  { view: 'rights', text: 'Your rights', icon: 'scale' },
+  { view: 'rights', text: 'Rights', icon: 'scale' },
   { view: 'settings', text: 'Settings', icon: 'settings' },
 ];
 
-// Desktop: links in the top bar, with the assistant and New problem on the right.
-// Phones: the links become a row of tabs and New problem moves to a + button.
-let fab = null;
-
+// Desktop: a slim rail with Probe at the bottom. Phones: a floating dock with
+// Probe raised in the middle, because asking it is the main thing you do there.
 function renderChrome(active) {
-  nav.replaceChildren(...NAV.map((n) => h('a', { href: `#/${n.view}`, class: 'nav-item', 'aria-current': n.view === active ? 'page' : null },
-    icon(n.icon, 16), h('span', {}, n.text))));
-  topActions.replaceChildren(...[
+  const alert = summaries().some((s) => !s.fixed && s.deadlines.overdue.length);
+  const mood = alert ? 'alert' : 'idle';
+  const item = (n, cls) => h('a', { href: `#/${n.view}`, class: cls, 'aria-current': n.view === active ? 'page' : null }, icon(n.icon, 22), h('span', {}, n.text));
+  rail.replaceChildren(
+    h('a', { class: 'rail-logo', href: '#/home', 'aria-label': 'DampLog' }, h('img', { src: 'icons/icon.svg', alt: '', width: 40, height: 40 })),
+    ...NAV.map((n) => item(n, 'rail-item')),
+    h('button', { type: 'button', class: 'rail-probe', onclick: () => openProbe(), 'aria-label': 'Ask Probe' }, probe(46, mood), h('span', {}, 'Probe'), alert && h('span', { class: 'dot-alert' })));
+  dock.replaceChildren(
+    item(NAV[0], 'dock-item'), item(NAV[1], 'dock-item'),
+    h('button', { type: 'button', class: 'dock-probe', onclick: () => openProbe(), 'aria-label': 'Ask Probe' }, probe(44, mood), alert && h('span', { class: 'dot-alert' })),
+    item(NAV[2], 'dock-item'), item(NAV[3], 'dock-item'));
+  mobileTop.replaceChildren(...[
+    h('a', { class: 'brand', href: '#/home' }, h('img', { src: 'icons/icon.svg', alt: '', width: 28, height: 28 }), h('span', {}, 'DampLog')),
     !navigator.onLine && h('span', { class: 'status-pill' }, icon('wifiOff', 14), 'Offline'),
-    h('a', { class: 'ask-btn', href: '#/assistant', 'aria-current': active === 'assistant' ? 'page' : null }, bot(30), h('span', {}, 'Ask')),
-    btn('New problem', { icon: 'plus', kind: 'primary', href: '#/new' }),
+    btn('', { icon: 'settings', kind: 'ghost', title: 'Settings', href: '#/settings' }),
   ].filter(Boolean));
-  topActions.lastElementChild.classList.add('new-btn');
-  if (!fab) {
-    fab = h('button', { type: 'button', class: 'fab', 'aria-label': 'Add to your record', onclick: openQuickSheet }, icon('plus', 26));
-    document.body.append(fab);
-  }
-  fab.hidden = active === 'assistant';
 }
 
 function openQuickSheet() {
@@ -219,38 +221,39 @@ function openQuickSheet() {
 /* ---------- welcome and setup ---------- */
 
 function viewWelcome() {
+  // A demo clock: ten days inside the deadline, then the days the landlord is late.
+  const demo = Array.from({ length: 15 }, (_, i) => h('span', { class: `cell ${i < 10 ? 'used' : 'late'}${i === 9 ? ' due' : ''}${i === 14 ? ' today' : ''}` }));
+  demo.forEach((c, i) => { c.style.animationDelay = `${i * 90}ms`; });
   const feature = (iconName, title, text) => h('div', { class: 'feature' }, h('span', { class: 'feature-icon' }, icon(iconName, 20)), h('strong', {}, title), h('p', {}, text));
-  // A worked example on the right: what the tracker shows when a landlord is late.
-  const exampleStep = (tone, iconName, title, label, detail) => h('li', { class: `step ${tone === 'bad' ? 'overdue' : ''}` },
-    h('span', { class: `step-dot ${tone}` }, icon(iconName, 14)),
-    h('div', { class: 'step-text' }, h('div', { class: 'step-title' }, h('strong', {}, title), badge(tone, label)), h('span', { class: 'muted small' }, detail)));
   return h('div', { class: 'page welcome' },
     h('section', { class: 'hero' },
       h('div', {},
-        h('span', { class: 'eyebrow' }, icon('droplet', 14), 'For tenants in England'),
-        h('h1', {}, 'Keep the evidence. Hold your landlord to the deadlines.'),
-        h('p', { class: 'lead' }, 'Log damp, mould and repairs with dated photos, see the deadlines your landlord has to meet under Awaab\'s Law, and turn your record into letters and an evidence report. Free, works offline, and everything stays on your phone.'),
+        h('span', { class: 'eyebrow' }, icon('droplet', 14), 'Damp, mould and repairs · England'),
+        h('h1', {}, 'Your landlord\'s clock is ', h('em', {}, 'ticking.')),
+        h('p', { class: 'lead' }, 'Under Awaab\'s Law, councils and housing associations have 10 working days to investigate damp and mould. DampLog counts every one of them, keeps your dated evidence, and writes the letters when they are late. Free, works offline, and your record never leaves your phone.'),
         h('div', { class: 'actions' },
-          btn('Get started', { icon: 'next', kind: 'primary', href: '#/setup' }),
-          btn('Try it with sample data', {
-            icon: 'refresh',
+          btn('Start my record', { icon: 'next', kind: 'primary', href: '#/setup' }),
+          btn('See an example case', {
+            icon: 'eye',
             onclick: (e) => {
               e.currentTarget.disabled = true;
               act(loadSample);
             },
           }))),
-      h('div', { class: 'hero-file', 'aria-label': 'Example of the deadline tracker' },
-        h('div', { class: 'file-head' }, h('strong', {}, 'Black mould in the bedroom'), h('span', { class: 'kicker' }, 'Example')),
-        h('ol', { class: 'steps' },
-          exampleStep('ok', 'check', 'Reported to the landlord', 'Done', 'Fri 2 Oct, by phone, ref EC-48213'),
-          exampleStep('bad', 'alert', 'Investigate the problem', 'Overdue', 'Was due Fri 16 Oct · 5 working days late'),
-          exampleStep('', 'clock', 'Written summary', 'Not started', 'Within 3 working days of the investigation')),
-        h('div', { class: 'assist-head' }, bot(40), h('div', {}, h('strong', {}, 'Ask the assistant'), h('p', {}, '"What should I do next?"'))))),
+      h('div', { class: 'hero-demo' },
+        h('div', { class: 'tile clock late' },
+          h('div', { class: 'clock-head' }, h('div', {}, h('span', { class: 'kicker' }, 'Example · Bedroom'), h('h2', {}, 'Black mould in the bedroom')), badge('bad', 'Overdue')),
+          h('div', { class: 'clock-count' },
+            h('div', { class: 'count' }, h('span', { class: 'count-num' }, '15', h('small', {}, '/10')), h('span', { class: 'count-label' }, 'Working days since told')),
+            h('div', { class: 'count late' }, h('span', { class: 'count-num' }, '+5'), h('span', { class: 'count-label' }, 'Days late'))),
+          h('div', { class: 'strip animate' }, demo),
+          h('div', { class: 'strip-labels' }, h('span', {}, 'Told 2 Oct'), h('span', { class: 'due-label' }, 'Deadline 16 Oct'), h('span', {}, 'Today'))),
+        h('div', { class: 'probe-says' }, probe(64, 'alert'), h('div', { class: 'bubble-say' }, 'Reading: they are 5 working days late. Shall I start the chase letter?')))),
     h('div', { class: 'features' },
-      feature('camera', 'Dated evidence', 'Photos, notes, calls and visits in one timeline, each with the date and time.'),
-      feature('clock', 'Deadline tracker', 'Counts working days the way the regulations do, bank holidays included.'),
-      feature('mail', 'Letters in one tap', 'Report the problem, chase a missed deadline or make a formal complaint.'),
-      feature('sparkle', 'An assistant that knows your record', 'Ask what to do next. It reads your timeline and deadlines, and you can check every word.')),
+      feature('clock', 'The landlord\'s clock', 'Every working day counted the way the regulations count them, bank holidays included.'),
+      feature('camera', 'Dated evidence', 'Photos, calls, visits and missed appointments in one timeline.'),
+      feature('mail', 'Letters that land', 'Report, chase or complain in one tap, filled in from your record.'),
+      feature('sparkle', 'Probe', 'A damp meter that reads your case and tells you the next move. Ask it anything with your own AI key.')),
     scopeNote());
 }
 
@@ -305,101 +308,120 @@ function viewSetup() {
     card('', homeForm({ submitText: 'Save and continue', onSaved: () => { location.hash = state.issues.length ? '#/home' : '#/new'; } })));
 }
 
-/* ---------- overview ---------- */
+/* ---------- overview: a bento of the case ---------- */
+
+function greeting() {
+  const hour = new Date().getHours();
+  return hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+}
+
+/** The landlord's clock for one problem: a big count and one cell per working day. */
+function clockTile(s, t, { cls = '', link = true } = {}) {
+  const c = core.caseClock(s, t);
+  const { issue } = s;
+  const head = h('div', { class: 'clock-head' },
+    h('div', {}, h('span', { class: 'kicker' }, `${issue.room || 'Home'} · ${core.KINDS[issue.kind].label}`),
+      h('h2', {}, link ? h('a', { href: `#/issue/${issue.id}` }, issue.title) : issue.title)),
+    issueBadge(s));
+  if (c.mode !== 'days') {
+    const [title, text, action] = {
+      'not-started': ['The clock has not started', 'Your landlord\'s deadlines start the day after they are told. Report it in writing.', btn('Write the report', { icon: 'mail', kind: 'primary', href: `#/letters/${issue.id}?kind=report` })],
+      fixed: ['Fixed', `Closed on ${fmtDate(issue.closedAt)}. The record stays here as evidence.`, null],
+      waiting: ['Waiting on the landlord', 'Every deadline so far has been met.', null],
+      'no-deadlines': ['No legal deadlines yet', 'Private landlords are not covered by Awaab\'s Law yet. Keep the record going.', btn('Your rights', { icon: 'scale', href: '#/rights' })],
+      long: [c.step?.title ?? '', c.step ? `${c.overdue ? 'Was due' : 'Due by'} ${fmtTime(c.due, { weekday: true })}` : '', null],
+    }[c.mode];
+    return h('section', { class: `tile clock ${cls} ${c.overdue ? 'late' : ''}`.trim() }, link && head,
+      h('div', { class: 'clock-empty' }, h('strong', {}, title), h('span', { class: 'muted' }, text), action && h('div', { class: 'actions' }, action)));
+  }
+  const late = c.overdueBy > 0;
+  const cells = c.days.map((d) => h('span', { class: `cell ${d.state}${d.due ? ' due' : ''}${d.today ? ' today' : ''}`, title: `${fmtDate(d.date, { weekday: true })}${d.due ? ' · deadline' : ''}` }));
+  const what = c.step.title.charAt(0).toLowerCase() + c.step.title.slice(1);
+  // On the problem page the title is already in the page header.
+  return h('section', { class: `tile clock ${cls} ${late ? 'late' : ''}`.trim() },
+    link && head,
+    h('div', { class: 'clock-count' },
+      h('div', { class: 'count' }, h('span', { class: 'count-num' }, String(c.elapsed), h('small', {}, `/${c.allowed}`)), h('span', { class: 'count-label' }, `Working days to ${what}`)),
+      late
+        ? h('div', { class: 'count late' }, h('span', { class: 'count-num' }, `+${c.overdueBy}`), h('span', { class: 'count-label' }, plural(c.overdueBy, 'day') + ' late'))
+        : h('div', { class: 'count left' }, h('span', { class: 'count-num' }, String(c.allowed - c.elapsed)), h('span', { class: 'count-label' }, 'Days left'))),
+    h('div', { class: 'strip', role: 'img', 'aria-label': `${c.elapsed} of ${c.allowed} working days used${late ? `, ${c.overdueBy} late` : ''}` }, cells),
+    h('div', { class: 'strip-labels' },
+      h('span', {}, `${c.truncated ? '… ' : ''}${c.step.key === 'investigation' ? 'Told' : 'Investigated'} ${fmtDate(c.start, { year: false })}`),
+      h('span', { class: 'due-label' }, `Deadline ${fmtDate(c.due, { weekday: true, year: false })}`),
+      h('span', {}, 'Today')),
+    link && h('div', { class: 'clock-foot' },
+      h('span', { class: 'muted small' }, late ? `Your landlord had to ${what} by ${fmtDate(c.due, { weekday: true })}.` : 'Keep adding dated photos while you wait.'),
+      late ? btn('Chase them now', { icon: 'mail', kind: 'late', href: `#/letters/${issue.id}?kind=chase` }) : btn('Open the case', { icon: 'next', href: `#/issue/${issue.id}` })));
+}
+
+function reading(step, compact = false) {
+  return h('div', { class: `reading ${step.tone}` },
+    h('strong', {}, step.title),
+    !compact && h('p', {}, step.text),
+    btn(step.action.label, { size: 'sm', kind: compact ? '' : step.tone === 'bad' ? 'late' : 'primary', href: step.action.href }));
+}
+
+function probeTile(t) {
+  const steps = nextSteps(state.home, summaries(), t);
+  const alert = steps[0]?.tone === 'bad';
+  return h('section', { class: 'tile probe-tile row-2' },
+    h('div', { class: 'probe-hero' }, probe(64, alert ? 'alert' : 'idle'),
+      h('div', {}, h('span', { class: 'kicker' }, 'Probe · reading'), h('h2', {}, steps.length ? 'Your next move' : 'All quiet'))),
+    steps.length ? reading(steps[0]) : h('p', { class: 'muted' }, 'Nothing needs doing right now. Add photos as things change.'),
+    steps.slice(1, 3).map((s) => reading(s, true)),
+    h('button', { type: 'button', class: 'ask-pill', onclick: () => openProbe({ focus: true }) }, icon('sparkle', 18),
+      h('span', {}, aiConfig.provider ? 'Ask Probe about your case…' : 'Ask Probe · connect AI to chat')));
+}
+
+function evidenceTile() {
+  const recent = [...state.photos].sort((a, b) => String(b.takenAt).localeCompare(String(a.takenAt))).slice(0, 4);
+  return h('section', { class: 'tile' },
+    h('div', {}, h('span', { class: 'kicker' }, 'Evidence'), h('div', { class: 'big-stat' }, String(state.photos.length)),
+      h('span', { class: 'muted small' }, `photos · ${plural(state.entries.length, 'entry', 'entries')}`)),
+    recent.length
+      ? h('div', { class: 'mosaic' }, recent.map((p) => h('img', { src: photoUrl(p), alt: '', loading: 'lazy' })))
+      : h('div', { class: 'mosaic-empty' }, 'No photos yet'));
+}
+
+function caseRow(s, t) {
+  const { issue, deadlines: d } = s;
+  const c = core.caseClock(s, t);
+  const meta = s.fixed ? `Fixed ${fmtDate(issue.closedAt)}` : d.reportedAt ? `Told ${fmtDate(d.reportedAt)} · ${plural(s.workingDaysSinceReport, 'working day')} ago` : 'Not reported yet';
+  return h('li', {}, h('a', { class: 'case', href: `#/issue/${issue.id}` },
+    h('div', {}, h('h3', {}, issue.title), h('span', { class: 'case-meta' }, `${issueSub(issue)} · ${meta}`)),
+    issueBadge(s),
+    c.mode === 'days' && h('div', { class: 'mini-strip' }, c.days.map((x) => h('span', { class: `cell ${x.state}${x.due ? ' due' : ''}` })))));
+}
 
 function viewHome() {
   if (!state.issues.length && !core.homeReady(state.home)) return viewWelcome();
   const t = today();
   const list = summaries();
-  const open = list.filter((s) => !s.fixed);
-  const overdue = open.flatMap((s) => s.deadlines.overdue.map((step) => ({ s, step })));
-  const next = open.map((s) => s.deadlines.next && { s, step: s.deadlines.next }).filter(Boolean)
-    .sort((a, b) => (a.step.dueAt ?? a.step.due).localeCompare(b.step.dueAt ?? b.step.due))[0];
-  const photos = list.reduce((n, s) => n + s.photos, 0);
-  const worst = overdue[0];
-  const ledger = (tone, label, value, sub, href) => h('a', { class: `ledger-item ${tone}`, href },
-    h('span', { class: 'ledger-label' }, label), h('strong', { class: 'ledger-value' }, value), h('span', { class: 'ledger-sub' }, sub));
-
-  // One sentence that says where things stand, written from the record.
-  let headline;
-  if (worst) {
-    const late = worst.step.dueAt ? null : core.workingDaysBetween(worst.step.due, t.date);
-    headline = h('h1', {}, 'Your landlord is ', h('em', {}, late ? `${plural(late, 'working day')} late` : 'late'), ` on the ${worst.s.issue.title.charAt(0).toLowerCase()}${worst.s.issue.title.slice(1)}.`);
-  } else if (open.some((s) => !s.deadlines.reportedAt)) {
-    headline = h('h1', {}, 'You have a problem your landlord has not been told about yet.');
-  } else if (open.length) {
-    headline = h('h1', {}, 'Your landlord is ', h('em', { class: 'ok' }, 'within the deadlines'), ' so far.');
-  } else {
-    headline = h('h1', {}, list.length ? 'Every problem on your record is fixed.' : 'Start your record with the first problem.');
-  }
-
+  const lead = list.find((s) => !s.fixed) ?? list[0];
+  const first = state.home.tenantName.split(' ')[0];
   return h('div', { class: 'page' },
-    state.home.sample && notice('info', 'info', h('strong', {}, 'You are looking at sample data. '), 'Have a look around, then clear it in ', h('a', { href: '#/settings?section=erase' }, 'Settings'), ' to start your own record.'),
-    h('section', { class: 'status-hero' },
-      h('div', {}, h('span', { class: 'kicker' }, state.home.address || 'Your home'), headline,
-        h('p', {}, worst
-          ? `The landlord had to ${worst.step.title.charAt(0).toLowerCase()}${worst.step.title.slice(1)} by ${fmtDate(worst.step.dueAt ?? worst.step.due, { weekday: true })}. Chase them in writing and keep a copy.`
-          : next ? `Next: ${next.step.title.toLowerCase()} by ${fmtDate(next.step.dueAt ?? next.step.due, { weekday: true })}.` : 'Add photos, calls and visits as things happen.')),
-      worst
-        ? btn('Write a chase letter', { icon: 'mail', kind: 'primary', href: `#/letters/${worst.s.issue.id}?kind=chase` })
-        : btn('Log a new problem', { icon: 'plus', kind: 'primary', href: '#/new' })),
-    h('div', { class: 'ledger' },
-      ledger('', 'Open problems', String(open.length), list.length > open.length ? `${list.length - open.length} fixed` : 'Being tracked', '#/home'),
-      ledger(overdue.length ? 'bad' : '', 'Missed deadlines', String(overdue.length), overdue.length ? 'The landlord is late' : 'None so far', worst ? `#/issue/${worst.s.issue.id}` : '#/home'),
-      ledger('', 'Next deadline', next ? fmtDate(next.step.dueAt ?? next.step.due, { year: false }) : '—', next ? next.step.title : 'Nothing due', next ? `#/issue/${next.s.issue.id}` : '#/home'),
-      ledger('', 'Evidence', String(photos), `photos · ${plural(state.entries.length, 'entry', 'entries')}`, '#/home')),
-    h('div', { class: 'overview-grid' },
-      h('section', {},
-        h('div', { class: 'section-title' }, h('h2', {}, 'Your case files'), h('span', { class: 'muted small' }, 'Missed deadlines first')),
-        list.length
-          ? h('ul', { class: 'cases' }, list.map((s) => caseCard(s, t)))
-          : card('', emptyState('droplet', 'No problems logged yet', 'Log the first problem with a photo. You can add to the record any time.', btn('Log a new problem', { icon: 'plus', kind: 'primary', href: '#/new' })))),
-      h('div', { class: 'stack' },
-        assistCard(),
-        backupNudge(),
-        state.home.landlordType !== 'social' && notice('', 'info', h('strong', {}, 'Private renting: '),
-          'Awaab\'s Law deadlines do not apply to private landlords yet, so DampLog tracks the steps without legal due dates. ',
-          h('a', { href: '#/rights' }, 'What you can do')))),
+    state.home.sample && notice('info', 'info', h('strong', {}, 'This is an example case. '), 'Look around, then clear it in ', h('a', { href: '#/settings?section=erase' }, 'Settings'), ' to start your own record.'),
+    h('header', { class: 'greeting' },
+      h('div', {}, h('span', { class: 'kicker' }, state.home.address || 'Your home'), h('h1', {}, `${greeting()}${first ? `, ${first}` : ''}.`)),
+      h('div', { class: 'actions' },
+        btn('Add evidence', { icon: 'camera', kind: 'primary', onclick: openQuickSheet }),
+        btn('New problem', { icon: 'plus', href: '#/new' }))),
+    lead
+      ? h('div', { class: 'bento' },
+        clockTile(lead, t, { cls: 'span-3' }),
+        probeTile(t),
+        h('section', { class: 'tile span-2' },
+          h('div', { class: 'card-head' }, h('div', {}, h('span', { class: 'kicker' }, 'Case files'), h('h2', {}, plural(list.length, 'problem')))),
+          h('ul', { class: 'cases' }, list.map((s) => caseRow(s, t)))),
+        evidenceTile())
+      : h('div', { class: 'bento' },
+        h('section', { class: 'tile span-3' }, emptyState('droplet', 'No problems logged yet', 'Log the first problem with a photo. The clock starts when you tell your landlord.', btn('Log a new problem', { icon: 'plus', kind: 'primary', href: '#/new' }))),
+        probeTile(t)),
+    state.home.landlordType !== 'social' && notice('', 'info', h('strong', {}, 'Private renting: '),
+      'Awaab\'s Law deadlines do not apply to private landlords yet, so DampLog tracks the steps without legal due dates. ',
+      h('a', { href: '#/rights' }, 'What you can do')),
     scopeNote());
-}
-
-function caseCard(s, t) {
-  const { issue, deadlines: d } = s;
-  const tone = s.fixed ? 'ok' : d.overdue.length ? 'bad' : !d.reportedAt ? 'warn' : 'info';
-  const meta = s.fixed
-    ? `Fixed${issue.closedAt ? ` on ${fmtDate(issue.closedAt)}` : ''}`
-    : d.reportedAt
-      ? `Reported ${fmtDate(d.reportedAt)} · ${plural(s.workingDaysSinceReport, 'working day')} ago`
-      : `Noticed ${fmtDate(issue.firstNoticed ?? issue.createdAt)} · not reported yet`;
-  const nextStep = d.overdue[0] ?? d.next;
-  const nextLine = s.fixed ? null
-    : nextStep ? `${nextStep.title}: ${stepDetail(nextStep, t)}`
-      : !d.reportedAt ? 'Tell your landlord in writing so the deadlines start' : null;
-  return h('li', {}, h('a', { class: `case ${tone}`, href: `#/issue/${issue.id}` },
-    h('div', {}, h('h3', {}, issue.title), h('span', { class: 'case-meta' }, `${issueSub(issue)} · ${meta}`)),
-    h('div', { class: 'case-side' }, issueBadge(s), h('span', { class: 'muted small' }, plural(s.photos, 'photo'))),
-    nextLine && h('div', { class: 'case-next' }, icon(d.overdue.length ? 'alert' : 'clock', 15), h('span', {}, nextLine))));
-}
-
-function assistCard() {
-  const ask = (q) => {
-    location.hash = '#/assistant';
-    setTimeout(() => askAssistant(q), 50);
-  };
-  return card('assist-card',
-    h('div', { class: 'assist-head' }, bot(48), h('div', {}, h('h2', {}, 'Ask about your case'), h('p', {}, aiConfig.provider ? 'The assistant reads your record and deadlines.' : 'Connect AI help to ask questions about your record.'))),
-    aiConfig.provider
-      ? h('ul', { class: 'prompt-list' }, SUGGESTIONS.slice(0, 3).map((q) => h('li', {}, h('button', { type: 'button', class: 'prompt', onclick: () => ask(q) }, h('span', {}, q), icon('next', 15)))))
-      : btn('Connect AI help', { icon: 'sparkle', href: '#/settings?section=ai' }));
-}
-
-function backupNudge() {
-  const last = state.home.lastBackup;
-  if (!state.entries.length || state.home.sample) return null;
-  if (last && core.daysBetween(last.slice(0, 10), today().date) < 14) return null;
-  return notice('warn', 'shield', h('strong', {}, last ? 'Time for a backup. ' : 'Make a backup. '),
-    'Your record only lives on this device. If the phone is lost or the browser is cleared, it goes too. ',
-    h('a', { href: '#/settings?section=backup' }, 'Download a backup'));
 }
 
 /* ---------- new problem ---------- */
@@ -540,6 +562,7 @@ function viewIssue(id) {
       btn('Evidence report', { icon: 'report', href: `#/report/${issue.id}` }),
     ]),
     h('div', { class: 'badges spaced' }, issueBadge(s), d.reportedAt && badge('', `Reported ${fmtDate(d.reportedAt)}`), s.photos > 0 && badge('', plural(s.photos, 'photo'))),
+    d.reportedAt && !s.fixed && clockTile(s, t, { link: false }),
     !d.reportedAt && !s.fixed && notice('warn', 'alert',
       h('strong', {}, 'Your landlord has not been told yet, as far as this record shows. '),
       'The deadlines only start once they know. Report it in writing if you can, so there is proof.',
@@ -947,36 +970,105 @@ function viewReport(id) {
         `Generated by DampLog on ${fmtDate(t.date)}. Entries and photo dates were recorded by the tenant. Deadlines are counted in working days (excluding weekends and bank holidays in England and Wales) from the day after the landlord was told, following the Hazards in Social Housing (Prescribed Requirements) (England) Regulations 2025.`)));
 }
 
-/* ---------- assistant ---------- */
+/* ---------- Probe: the case assistant ---------- */
 
-const chatIntro = (actions) => h('header', { class: 'chat-intro' }, bot(72),
-  h('div', { class: 'chat-intro-text' }, h('span', { class: 'kicker' }, 'Assistant'), h('h1', {}, 'Ask about your case'),
-    h('p', {}, 'It reads your problems, timeline and the deadlines DampLog has worked out, then tells you what to do next.')),
-  actions);
+// Probe lives in a panel that slides in over any screen. Its readings come from
+// the record with no AI; with an AI key it also answers questions, and each
+// answer can carry buttons that open the right screen.
+let probePanel = null;
+
+function openProbe({ focus = false, ask } = {}) {
+  if (!probePanel) {
+    probePanel = h('dialog', { class: 'probe-panel', 'aria-label': 'Probe, your case assistant' });
+    probePanel.addEventListener('click', (e) => { if (e.target === probePanel) probePanel.close(); });
+    document.body.append(probePanel);
+  }
+  paintProbe();
+  if (!probePanel.open) probePanel.showModal();
+  if (ask) askProbe(ask);
+  else if (focus) probePanel.querySelector('textarea:not([disabled])')?.focus();
+}
+
+function goFromProbe(href) {
+  probePanel?.close();
+  location.hash = href;
+}
 
 function fillReply(m) {
   if (!m.el) return;
+  const { text, actions } = splitActions(m.content);
+  const urgent = summaries().find((s) => !s.fixed) ?? summaries()[0];
   if (m.error) m.el.replaceChildren(notice('bad', 'alert', m.error));
-  else if (!m.content) m.el.replaceChildren(h('span', { class: 'typing', 'aria-label': 'Thinking' }, h('i'), h('i'), h('i')));
-  else m.el.replaceChildren(renderMarkdown(m.content));
-  setBotState(m.face, m.pending ? (m.content ? 'talking' : 'thinking') : 'idle');
+  else if (!text) m.el.replaceChildren(h('span', { class: 'typing', 'aria-label': 'Probe is taking a reading' }, h('i'), h('i'), h('i')));
+  else {
+    m.el.replaceChildren(...[renderMarkdown(text),
+      !m.pending && urgent && actions.length > 0 && h('div', { class: 'msg-actions' },
+        actions.map((id) => btn(ACTION_IDS[id].label, { size: 'sm', icon: 'next', onclick: () => goFromProbe(ACTION_IDS[id].path(urgent.issue.id)) })))].filter(Boolean));
+  }
+  const mood = m.pending ? (text ? 'talking' : 'thinking') : 'idle';
+  setProbeMood(m.face, mood);
+  if (m.pending) setProbeMood(chat.face, mood);
 }
 
 function bubble(m) {
-  if (m.role === 'user') return h('div', { class: 'msg user' }, h('div', { class: 'msg-body' }, m.content));
-  m.face = bot(36);
+  if (m.role === 'user') return h('div', { class: 'msg user' }, m.content);
+  m.face = probe(32);
   m.el = h('div', { class: 'msg-body' });
   fillReply(m);
-  return h('div', { class: 'msg ai' }, m.face, h('div', {}, h('div', { class: 'msg-name' }, 'DampLog assistant'), m.el));
+  return h('div', { class: 'msg ai' }, m.face, m.el);
 }
 
-function showChat() {
-  if (currentRoute().name !== 'assistant') return;
-  render();
-  requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
+function paintProbe() {
+  if (!probePanel) return;
+  const steps = nextSteps(state.home, summaries(), today());
+  const mood = chat.busy ? 'thinking' : steps[0]?.tone === 'bad' ? 'alert' : 'idle';
+  chat.face = probe(54, mood);
+  const input = h('textarea', { rows: 1, placeholder: aiConfig.provider ? 'Ask Probe about your case…' : 'Connect AI help to chat', disabled: !aiConfig.provider, 'aria-label': 'Your question' });
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+  });
+  const form = h('form', { class: 'composer' }, input,
+    chat.busy
+      ? btn('', { icon: 'stop', title: 'Stop', onclick: () => chat.controller?.abort() })
+      : btn('', { icon: 'send', kind: 'primary', title: 'Send', type: 'submit', disabled: !aiConfig.provider }));
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const question = input.value;
+    input.value = '';
+    askProbe(question);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  probePanel.replaceChildren(
+    h('header', { class: 'panel-head' }, chat.face,
+      h('div', {}, h('h2', {}, 'Probe'), h('p', {}, mood === 'alert' ? 'Reading: your landlord is late.' : 'Your case assistant')),
+      btn('', { icon: 'close', kind: 'ghost', title: 'Close', onclick: () => probePanel.close() })),
+    h('div', { class: 'panel-body' },
+      h('span', { class: 'kicker' }, 'Reading your record'),
+      steps.length
+        ? h('div', { class: 'readings' }, steps.slice(0, 3).map((s, i) => h('div', { class: `reading ${s.tone}` },
+          h('strong', {}, s.title),
+          i === 0 && h('p', {}, s.text),
+          btn(s.action.label, { size: 'sm', kind: i ? '' : s.tone === 'bad' ? 'late' : 'primary', onclick: () => goFromProbe(s.action.href) }))))
+        : h('p', { class: 'muted' }, 'Nothing needs doing right now.'),
+      chat.messages.length
+        ? h('div', { class: 'thread', 'aria-live': 'polite' }, chat.messages.map(bubble))
+        : aiConfig.provider && h('div', { class: 'prompt-chips' }, SUGGESTIONS.map((q) => h('button', { type: 'button', class: 'chip', onclick: () => askProbe(q) }, q))),
+      !aiConfig.provider && notice('', 'sparkle', 'Probe gives these readings on its own. To ask your own questions, ',
+        h('a', { href: '#/settings?section=ai', onclick: () => probePanel.close() }, 'connect AI help'), ' with your OpenAI or Claude key.')),
+    h('div', { class: 'panel-foot' }, form,
+      h('p', { class: 'fineprint' }, 'Probe reads your problems, notes, dates and deadlines, never your photos. It is not legal advice.'),
+      chat.messages.length > 0 && !chat.busy && h('button', { type: 'button', class: 'chip', onclick: () => { chat.messages = []; paintProbe(); } }, 'Start a new chat')));
+  const body = probePanel.querySelector('.panel-body');
+  if (chat.messages.length) requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; });
 }
 
-async function askAssistant(text) {
+async function askProbe(text) {
   const question = text.trim();
   if (!question || chat.busy) return;
   try {
@@ -991,7 +1083,7 @@ async function askAssistant(text) {
   chat.messages.push(reply);
   chat.busy = true;
   chat.controller = new AbortController();
-  showChat();
+  paintProbe();
   try {
     // The record is read fresh for every question, so answers follow new entries.
     const system = assistantSystem(recordContext(state.home, summaries(), today()));
@@ -1006,49 +1098,8 @@ async function askAssistant(text) {
     reply.pending = false;
     chat.busy = false;
     chat.controller = null;
-    showChat();
+    paintProbe();
   }
-}
-
-function viewAssistant() {
-  if (!aiConfig.provider) {
-    return h('div', { class: 'page chat-page' },
-      chatIntro(),
-      card('connect', bot(80),
-        h('h2', {}, 'Connect AI help to use the assistant'),
-        h('p', {}, 'Paste your own OpenAI or Claude key in Settings. It stays on this device, and the assistant only reads your record when you ask it something.'),
-        btn('Connect AI help', { icon: 'sparkle', kind: 'primary', href: '#/settings?section=ai' })));
-  }
-  const input = h('textarea', { rows: 1, placeholder: 'Ask about your record…', 'aria-label': 'Your question' });
-  const grow = () => {
-    input.style.height = 'auto';
-    input.style.height = `${Math.min(input.scrollHeight, 200)}px`;
-  };
-  input.addEventListener('input', grow);
-  const form = h('form', { class: 'composer' }, input,
-    chat.busy
-      ? btn('', { icon: 'stop', title: 'Stop', onclick: () => chat.controller?.abort() })
-      : btn('', { icon: 'send', kind: 'primary', title: 'Send', type: 'submit' }));
-  form.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const text = input.value;
-    input.value = '';
-    askAssistant(text);
-  });
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-      e.preventDefault();
-      form.requestSubmit();
-    }
-  });
-  const clear = chat.messages.length > 0 && !chat.busy && btn('New chat', { icon: 'refresh', size: 'sm', kind: 'ghost', onclick: () => { chat.messages = []; render(); } });
-  return h('div', { class: 'page chat-page' },
-    chatIntro(clear),
-    chat.messages.length
-      ? h('div', { class: 'thread', 'aria-live': 'polite' }, chat.messages.map(bubble))
-      : h('ul', { class: 'prompt-list chat-prompts' }, SUGGESTIONS.map((q) => h('li', {}, h('button', { type: 'button', class: 'prompt', onclick: () => askAssistant(q) }, h('span', {}, q), icon('next', 15))))),
-    form,
-    h('p', { class: 'fineprint' }, `The assistant sees your problems, notes, dates, deadlines and who lives in your home, never your photos. It uses ${ai.PROVIDERS[aiConfig.provider].name} with your key. It is not legal advice: check anything important with Shelter or Citizens Advice.`));
 }
 
 /* ---------- your rights ---------- */
@@ -1268,9 +1319,15 @@ function notFound() {
 
 /* ---------- routing ---------- */
 
-const VIEWS = { home: viewHome, setup: viewSetup, new: viewNew, issue: viewIssue, add: viewAdd, letters: viewLetters, report: viewReport, assistant: viewAssistant, rights: viewRights, settings: viewSettings };
+const VIEWS = { home: viewHome, setup: viewSetup, new: viewNew, issue: viewIssue, add: viewAdd, letters: viewLetters, report: viewReport, assistant: viewProbeLink, rights: viewRights, settings: viewSettings };
 const TITLES = { home: 'Overview', setup: 'About your home', new: 'New problem', issue: 'Problem', add: 'Add to the record', letters: 'Letters', report: 'Evidence report', assistant: 'Assistant', rights: 'Your rights', settings: 'Settings' };
-const NAV_FOR = { setup: 'settings', new: 'home', issue: 'home', add: 'home', report: 'home' };
+const NAV_FOR = { setup: 'settings', issue: 'home', add: 'home', report: 'home', assistant: 'home' };
+
+// Old links to the assistant page open Probe over the overview.
+function viewProbeLink() {
+  setTimeout(() => openProbe({ focus: true }));
+  return viewHome();
+}
 
 function currentRoute() {
   const [path, query = ''] = location.hash.replace(/^#\/?/, '').split('?');
@@ -1298,10 +1355,8 @@ function afterNavigate() {
   main.classList.remove('enter');
   void main.offsetWidth; // restart the entrance animation
   main.classList.add('enter');
-  const { name, params } = currentRoute();
-  const section = params.get('section');
+  const section = currentRoute().params.get('section');
   if (section) requestAnimationFrame(() => document.getElementById(section)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
-  else if (name === 'assistant' && chat.messages.length) requestAnimationFrame(() => window.scrollTo(0, document.body.scrollHeight));
   else window.scrollTo(0, 0);
 }
 
