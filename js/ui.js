@@ -85,7 +85,7 @@ let probeCount = 0;
  * Everything moves in CSS: it hovers over a breathing shadow, its antennae sway,
  * its eyes blink and glance around, and water droplets drift up beside it.
  * Moods: 'idle', 'thinking' (scan line and reading bars), 'talking' (moving
- * mouth) and 'alert' (red screen, frown and a nervous shake when a landlord is late).
+ * mouth) and 'alert' (an amber screen and a concerned, steady face when a landlord is late).
  */
 export function probe(size = 44, mood = 'idle') {
   const id = `pb${++probeCount}`;
@@ -116,7 +116,7 @@ export function probe(size = 44, mood = 'idle') {
             svg('g', { class: 'probe-eyes' },
               svg('rect', { class: 'probe-eye ink', x: 28, y: 32.5, width: 6, height: 9.5, rx: 3 }),
               svg('rect', { class: 'probe-eye ink', x: 46, y: 32.5, width: 6, height: 9.5, rx: 3 })),
-            svg('path', { class: 'probe-brows line', d: 'M26.5 30.6 34 32.6 M53.5 30.6 46 32.6' }),
+            svg('path', { class: 'probe-brows line', d: 'M27.5 31.2 Q30.5 29.4 33.5 29.6 M52.5 31.2 Q49.5 29.4 46.5 29.6' }),
             svg('path', { class: 'probe-mouth line', d: 'M35 46.2 Q40 49.8 45 46.2' })),
           svg('g', { class: 'probe-bars' },
             svg('rect', { class: 'ink', x: 30.5, y: 33, width: 4.6, height: 15, rx: 2.3 }),
