@@ -371,7 +371,7 @@ function probeTile(t) {
     steps.length ? reading(steps[0]) : h('p', { class: 'muted' }, 'Nothing needs doing right now. Add photos as things change.'),
     steps.slice(1, 3).map((s) => reading(s, true)),
     h('button', { type: 'button', class: 'ask-pill', onclick: () => openProbe({ focus: true }) }, icon('sparkle', 18),
-      h('span', {}, aiConfig.provider ? 'Ask Probe about your case…' : 'Ask Probe · connect AI to chat')));
+      h('span', {}, aiConfig.provider ? 'Ask Probe about your case…' : 'Open Probe')));
 }
 
 function evidenceTile() {
@@ -408,16 +408,16 @@ function viewHome() {
         btn('Add evidence', { icon: 'camera', kind: 'primary', onclick: openQuickSheet }),
         btn('New problem', { icon: 'plus', href: '#/new' }))),
     lead
-      ? h('div', { class: 'bento' },
+      ? h('div', { class: `bento${probeDocked() ? ' docked' : ''}` },
         clockTile(lead, t, { cls: 'span-3' }),
-        probeTile(t),
+        !probeDocked() && probeTile(t),
         h('section', { class: 'tile span-2' },
           h('div', { class: 'card-head' }, h('div', {}, h('span', { class: 'kicker' }, 'Case files'), h('h2', {}, plural(list.length, 'problem')))),
           h('ul', { class: 'cases' }, list.map((s) => caseRow(s, t)))),
         evidenceTile())
-      : h('div', { class: 'bento' },
+      : h('div', { class: `bento${probeDocked() ? ' docked' : ''}` },
         h('section', { class: 'tile span-3' }, emptyState('droplet', 'No problems logged yet', 'Log the first problem with a photo. The clock starts when you tell your landlord.', btn('Log a new problem', { icon: 'plus', kind: 'primary', href: '#/new' }))),
-        probeTile(t)),
+        !probeDocked() && probeTile(t)),
     state.home.landlordType !== 'social' && notice('', 'info', h('strong', {}, 'Private renting: '),
       'Awaab\'s Law deadlines do not apply to private landlords yet, so DampLog tracks the steps without legal due dates. ',
       h('a', { href: '#/rights' }, 'What you can do')),
@@ -972,31 +972,68 @@ function viewReport(id) {
 
 /* ---------- Probe: the case assistant ---------- */
 
-// Probe lives in a panel that slides in over any screen. Its readings come from
-// the record with no AI; with an AI key it also answers questions, and each
+// On wide screens Probe is a copilot column docked on the right of every page;
+// on smaller screens it slides in over the page when asked. Its readings come
+// from the record with no AI; with an AI key it also answers questions, and each
 // answer can carry buttons that open the right screen.
+const probeDock = document.getElementById('probe-dock');
+const wide = window.matchMedia('(min-width: 1280px)');
 let probePanel = null;
 
-function openProbe({ focus = false, ask } = {}) {
-  if (!probePanel) {
-    probePanel = h('dialog', { class: 'probe-panel', 'aria-label': 'Probe, your case assistant', tabindex: '-1' });
-    probePanel.addEventListener('click', (e) => { if (e.target === probePanel) probePanel.close(); });
-    document.body.append(probePanel);
+// Probe docks once there is a record to read; before that it slides in like on phones.
+const canDock = () => wide.matches && (state.issues.length > 0 || core.homeReady(state.home));
+const probeDocked = () => canDock() && !chat.hidden;
+const probeHost = () => (probeDocked() ? probeDock : probePanel?.open ? probePanel : null);
+
+function layoutProbe() {
+  const docked = probeDocked();
+  document.body.classList.toggle('probe-docked', docked);
+  if (docked) {
+    if (probePanel?.open) probePanel.close();
+    // Keep what the tenant is typing: only repaint when they are not in the panel.
+    if (!probeDock.contains(document.activeElement)) paintProbe();
   }
-  paintProbe();
-  if (!probePanel.open) {
-    probePanel.showModal();
-    // Start focus on the panel itself, not on its first button.
-    probePanel.focus({ preventScroll: true });
+}
+
+function openProbe({ focus = false, ask } = {}) {
+  if (canDock()) {
+    const wasHidden = chat.hidden;
+    chat.hidden = false;
+    // The overview drops its Probe tile once Probe is docked beside it.
+    if (wasHidden) render();
+    layoutProbe();
+  } else {
+    if (!probePanel) {
+      probePanel = h('dialog', { class: 'probe-panel', 'aria-label': 'Probe, your case assistant', tabindex: '-1' });
+      probePanel.addEventListener('click', (e) => { if (e.target === probePanel) probePanel.close(); });
+      document.body.append(probePanel);
+    }
+    if (!probePanel.open) {
+      probePanel.showModal();
+      // Start focus on the panel itself, not on its first button.
+      probePanel.focus({ preventScroll: true });
+    }
+    paintProbe();
   }
   if (ask) askProbe(ask);
-  else if (focus) probePanel.querySelector('textarea:not([disabled])')?.focus();
+  else if (focus) probeHost()?.querySelector('textarea:not([disabled])')?.focus();
+}
+
+function closeProbe() {
+  if (probeDocked()) {
+    chat.hidden = true;
+    render();
+  } else {
+    probePanel?.close();
+  }
 }
 
 function goFromProbe(href) {
-  probePanel?.close();
+  if (!probeDocked()) probePanel?.close();
   location.hash = href;
 }
+
+wide.addEventListener('change', () => render());
 
 function fillReply(m) {
   if (!m.el) return;
@@ -1028,7 +1065,9 @@ const MAX_QUESTION = 1500;
 // action cards, and, once a conversation starts, the thread with Probe docked
 // in the header. The case bar and composer stay the same in both.
 function paintProbe() {
-  if (!probePanel) return;
+  const host = probeHost();
+  if (!host) return;
+  const docked = host === probeDock;
   const t = today();
   const list = summaries();
   const steps = nextSteps(state.home, list, t);
@@ -1037,8 +1076,8 @@ function paintProbe() {
   const lateDays = late && !late.dueAt ? core.workingDaysBetween(late.due, t.date) : 0;
   const mood = chat.busy ? 'thinking' : late ? 'alert' : 'idle';
   const talking = chat.messages.length > 0;
-  chat.face = probe(talking ? 40 : 172, mood);
-  probePanel.classList.toggle('calm', Boolean(chat.calm));
+  chat.face = probe(talking ? 40 : docked ? 150 : 172, mood);
+  host.classList.toggle('calm', Boolean(chat.calm));
 
   const status = chat.busy ? 'Taking a reading…'
     : !aiConfig.provider ? 'Readings only · connect AI to chat'
@@ -1052,7 +1091,7 @@ function paintProbe() {
     h('div', { class: 'pp-tools' },
       talking && !chat.busy && btn('', { icon: 'refresh', title: 'New chat', onclick: () => { chat.messages = []; paintProbe(); } }),
       btn('', { icon: chat.calm ? 'play' : 'pause', title: chat.calm ? 'Play animations' : 'Pause animations', onclick: () => { chat.calm = !chat.calm; paintProbe(); } }),
-      btn('', { icon: 'close', title: 'Close', onclick: () => probePanel.close() })));
+      btn('', { icon: 'close', title: docked ? 'Hide Probe' : 'Close', onclick: closeProbe })));
 
   const context = lead && h('div', { class: 'pp-context' },
     icon('file', 18),
@@ -1123,7 +1162,7 @@ function paintProbe() {
     }
   });
 
-  probePanel.replaceChildren(...[
+  host.replaceChildren(...[
     head,
     context,
     h('div', { class: 'panel-body' }, body),
@@ -1133,7 +1172,7 @@ function paintProbe() {
         ? `Your question and case record go to ${ai.PROVIDERS[aiConfig.provider].name} only when you send a message. Never your photos.`
         : 'Probe\'s readings are worked out on this device. Nothing is sent anywhere.')),
   ].filter(Boolean));
-  const scroller = probePanel.querySelector('.panel-body');
+  const scroller = host.querySelector('.panel-body');
   if (talking) requestAnimationFrame(() => { scroller.scrollTop = scroller.scrollHeight; });
 }
 
@@ -1417,6 +1456,7 @@ function render() {
   // The overview's heading is a sentence about the case, so it keeps its plain title.
   const heading = name === 'home' ? null : main.querySelector('h1');
   document.title = `${heading?.textContent ?? TITLES[name]} · DampLog`;
+  layoutProbe();
 }
 
 function afterNavigate() {

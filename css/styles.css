@@ -513,13 +513,28 @@ button.thumb:hover { transform: rotate(0) scale(1.04); }
 .probe-panel:focus { outline: none; }
 .probe-panel::backdrop { background: rgb(4 7 10 / 60%); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
 @keyframes panel-in { from { transform: translateX(48px); opacity: 0; } }
-.probe-panel.calm *, .probe-panel.calm *::before, .probe-panel.calm *::after { animation-play-state: paused !important; }
+.probe-panel.calm *, .probe-panel.calm *::before, .probe-panel.calm *::after, .probe-dock.calm *, .probe-dock.calm *::before, .probe-dock.calm *::after { animation-play-state: paused !important; }
+
+/* Wide screens: Probe docked as a copilot column on the right of every page */
+.probe-dock { display: none; }
+@media (min-width: 1280px) {
+  body.probe-docked .probe-dock { position: fixed; top: 0; right: 0; bottom: 0; z-index: 18; width: 400px; display: flex; flex-direction: column; background: linear-gradient(180deg, #111a23, #0c131a 40%); border-left: 1px solid var(--line-strong); color: var(--ink); }
+  body.probe-docked .stage { margin-right: 400px; }
+  body.probe-docked .rail-probe { display: none; }
+  .probe-dock .pp-stage { height: 200px; }
+  .probe-dock .pp-hints { display: none; }
+  .probe-dock .pp-intro p { font-size: 0.9rem; }
+  .probe-dock .pp-intro h3 { font-size: 1.45rem; }
+}
+.bento.docked { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 1099px) { .bento.docked { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 .pp-head { display: flex; align-items: center; gap: 14px; padding: 18px 20px 16px; border-bottom: 1px solid var(--line); }
 .pp-avatar { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 16px; background: radial-gradient(circle at 50% 35%, #1d3b39, #101820 70%); border: 1px solid rgb(62 230 193 / 30%); flex: none; }
-.pp-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.pp-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 .pp-title h2 { font-size: 1.3rem; }
-.pp-status { display: inline-flex; align-items: center; gap: 7px; font-size: 0.8rem; color: var(--muted); }
+.pp-status { display: flex; align-items: center; gap: 7px; font-size: 0.8rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pp-status i { flex: none; }
 .pp-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgb(62 230 193 / 18%); animation: pb-tip 1.8s ease-in-out infinite; }
 .pp-status.bad i { background: var(--bad); box-shadow: 0 0 0 3px rgb(255 97 89 / 18%); }
 .pp-tools { margin-left: auto; display: flex; gap: 6px; }
