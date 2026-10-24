@@ -25,7 +25,7 @@ const aiMeta = () => (aiConfig.provider ? [{ id: 'ai', ...aiConfig }] : []);
 
 // The assistant conversation lives in memory only, so it survives moving between
 // screens but is never saved.
-const chat = { messages: [], busy: false, controller: null };
+const chat = { messages: [], busy: false, controller: null, calm: false };
 
 /* ---------- helpers ---------- */
 
@@ -979,12 +979,16 @@ let probePanel = null;
 
 function openProbe({ focus = false, ask } = {}) {
   if (!probePanel) {
-    probePanel = h('dialog', { class: 'probe-panel', 'aria-label': 'Probe, your case assistant' });
+    probePanel = h('dialog', { class: 'probe-panel', 'aria-label': 'Probe, your case assistant', tabindex: '-1' });
     probePanel.addEventListener('click', (e) => { if (e.target === probePanel) probePanel.close(); });
     document.body.append(probePanel);
   }
   paintProbe();
-  if (!probePanel.open) probePanel.showModal();
+  if (!probePanel.open) {
+    probePanel.showModal();
+    // Start focus on the panel itself, not on its first button.
+    probePanel.focus({ preventScroll: true });
+  }
   if (ask) askProbe(ask);
   else if (focus) probePanel.querySelector('textarea:not([disabled])')?.focus();
 }
@@ -1018,20 +1022,94 @@ function bubble(m) {
   return h('div', { class: 'msg ai' }, m.face, m.el);
 }
 
+const MAX_QUESTION = 1500;
+
+// The panel has two states: a "lab" with Probe on a holographic stage and big
+// action cards, and, once a conversation starts, the thread with Probe docked
+// in the header. The case bar and composer stay the same in both.
 function paintProbe() {
   if (!probePanel) return;
-  const steps = nextSteps(state.home, summaries(), today());
-  const mood = chat.busy ? 'thinking' : steps[0]?.tone === 'bad' ? 'alert' : 'idle';
-  chat.face = probe(64, mood);
-  const input = h('textarea', { rows: 1, placeholder: aiConfig.provider ? 'Ask Probe about your case…' : 'Connect AI help to chat', disabled: !aiConfig.provider, 'aria-label': 'Your question' });
-  input.addEventListener('input', () => {
-    input.style.height = 'auto';
-    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+  const t = today();
+  const list = summaries();
+  const steps = nextSteps(state.home, list, t);
+  const lead = list.find((s) => !s.fixed) ?? list[0];
+  const late = lead?.deadlines.overdue[0];
+  const lateDays = late && !late.dueAt ? core.workingDaysBetween(late.due, t.date) : 0;
+  const mood = chat.busy ? 'thinking' : late ? 'alert' : 'idle';
+  const talking = chat.messages.length > 0;
+  chat.face = probe(talking ? 40 : 172, mood);
+  probePanel.classList.toggle('calm', Boolean(chat.calm));
+
+  const status = chat.busy ? 'Taking a reading…'
+    : !aiConfig.provider ? 'Readings only · connect AI to chat'
+      : late ? `Record loaded · ${plural(lead.deadlines.overdue.length, 'deadline')} missed` : 'Record loaded · Ready to help';
+  const head = h('header', { class: 'pp-head' },
+    h('span', { class: 'pp-avatar' }, talking ? chat.face : probe(34, mood)),
+    h('div', { class: 'pp-title' },
+      h('span', { class: 'kicker' }, 'DampLog / Probe'),
+      h('h2', {}, 'Case assistant'),
+      h('span', { class: `pp-status ${late ? 'bad' : ''}` }, h('i'), status)),
+    h('div', { class: 'pp-tools' },
+      talking && !chat.busy && btn('', { icon: 'refresh', title: 'New chat', onclick: () => { chat.messages = []; paintProbe(); } }),
+      btn('', { icon: chat.calm ? 'play' : 'pause', title: chat.calm ? 'Play animations' : 'Pause animations', onclick: () => { chat.calm = !chat.calm; paintProbe(); } }),
+      btn('', { icon: 'close', title: 'Close', onclick: () => probePanel.close() })));
+
+  const context = lead && h('div', { class: 'pp-context' },
+    icon('file', 18),
+    h('div', {}, h('span', { class: 'kicker' }, 'Case file'), h('strong', {}, lead.issue.title, h('span', {}, ` · ${state.home.address || 'your home'}`))),
+    h('span', { class: `pp-pill ${late ? 'bad' : ''}` }, late ? (lateDays ? `${lateDays} days late` : 'Late') : plural(list.length, 'problem')));
+
+  let body;
+  if (talking) {
+    body = h('div', { class: 'thread', 'aria-live': 'polite' }, chat.messages.map(bubble));
+  } else {
+    const cards = [];
+    if (steps[0]) cards.push({ icon: steps[0].tone === 'bad' ? 'alert' : 'next', tone: steps[0].tone, title: steps[0].action.label, sub: steps[0].title, run: () => goFromProbe(steps[0].action.href) });
+    if (aiConfig.provider) {
+      cards.push(
+        { icon: 'list', title: 'Plan my next steps', sub: 'Start with what matters most', run: () => askProbe(SUGGESTIONS[0]) },
+        { icon: 'clock', title: 'Explain my deadlines', sub: 'In plain English, from your record', run: () => askProbe(SUGGESTIONS[2]) },
+        { icon: 'flag', title: 'Prepare a complaint', sub: 'What to include, with your dates', run: () => askProbe(SUGGESTIONS[3]) });
+    } else {
+      cards.push({ icon: 'sparkle', title: 'Connect AI help', sub: 'Ask Probe your own questions', run: () => goFromProbe('#/settings?section=ai') });
+    }
+    body = h('div', { class: 'pp-lab' },
+      h('div', { class: `pp-stage ${late ? 'alert' : ''}` },
+        h('span', { class: 'pp-orbit o1' }), h('span', { class: 'pp-orbit o2' }), h('span', { class: 'pp-orbit o3' }),
+        h('span', { class: 'pp-spark s1' }), h('span', { class: 'pp-spark s2' }), h('span', { class: 'pp-spark s3' }),
+        chat.face,
+        h('span', { class: 'pp-tag' }, 'PB-01'),
+        h('span', { class: 'pp-meter' }, h('span', { class: 'pp-bars' }, h('i'), h('i'), h('i'), h('i'), h('i')), late ? `+${lateDays || '!'}D` : 'OK')),
+      h('div', { class: 'pp-intro' },
+        h('span', { class: 'kicker' }, 'Your case assistant'),
+        h('h3', {}, late ? 'Let\'s get them moving.' : steps.length ? 'Let\'s keep your case on track.' : 'All quiet on your case.'),
+        h('p', {}, steps[0]?.text ?? 'Ask me anything about your record. I know your dates and the deadlines.'),
+        h('div', { class: 'pp-chips' },
+          h('span', {}, icon('clock', 14), 'Knows your deadlines'),
+          h('span', {}, icon('shield', 14), 'Never sees your photos'))),
+      h('div', { class: 'pp-cards' }, cards.map((c) => h('button', { type: 'button', class: `pp-card ${c.tone ?? ''}`, onclick: c.run },
+        h('span', { class: 'pp-card-icon' }, icon(c.icon, 18)),
+        h('span', { class: 'pp-card-text' }, h('strong', {}, c.title), h('small', {}, c.sub)),
+        icon('arrowUpRight', 16)))));
+  }
+
+  const input = h('textarea', {
+    rows: 2, maxlength: MAX_QUESTION, disabled: !aiConfig.provider, 'aria-label': 'Your question',
+    placeholder: !aiConfig.provider ? 'Connect AI help to ask your own questions' : late ? 'What should I do about the late investigation?' : 'What should I do next?',
   });
-  const form = h('form', { class: 'composer' }, input,
-    chat.busy
-      ? btn('', { icon: 'stop', title: 'Stop', onclick: () => chat.controller?.abort() })
-      : btn('', { icon: 'send', kind: 'primary', title: 'Send', type: 'submit', disabled: !aiConfig.provider }));
+  const count = h('span', { class: 'pp-count' }, `0 / ${MAX_QUESTION.toLocaleString('en-GB')}`);
+  input.addEventListener('input', () => {
+    count.textContent = `${input.value.length} / ${MAX_QUESTION.toLocaleString('en-GB')}`;
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+  });
+  const form = h('form', { class: 'pp-composer' }, input,
+    h('div', { class: 'pp-composer-foot' },
+      h('span', { class: `pp-model ${aiConfig.provider ? 'on' : ''}` }, h('i'), aiConfig.provider ? aiConfig.model : 'AI off'),
+      count,
+      chat.busy
+        ? btn('', { icon: 'stop', title: 'Stop', onclick: () => chat.controller?.abort() })
+        : btn('', { icon: 'send', kind: 'primary', title: 'Send', type: 'submit', disabled: !aiConfig.provider })));
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     const question = input.value;
@@ -1044,28 +1122,19 @@ function paintProbe() {
       form.requestSubmit();
     }
   });
-  probePanel.replaceChildren(
-    h('header', { class: 'panel-head' }, chat.face,
-      h('div', {}, h('h2', {}, 'Probe'), h('p', {}, mood === 'alert' ? 'Reading: your landlord is late.' : 'Your case assistant')),
-      btn('', { icon: 'close', kind: 'ghost', title: 'Close', onclick: () => probePanel.close() })),
-    h('div', { class: 'panel-body' },
-      h('span', { class: 'kicker' }, 'Reading your record'),
-      steps.length
-        ? h('div', { class: 'readings' }, steps.slice(0, 3).map((s, i) => h('div', { class: `reading ${s.tone}` },
-          h('strong', {}, s.title),
-          i === 0 && h('p', {}, s.text),
-          btn(s.action.label, { size: 'sm', kind: i ? '' : s.tone === 'bad' ? 'late' : 'primary', onclick: () => goFromProbe(s.action.href) }))))
-        : h('p', { class: 'muted' }, 'Nothing needs doing right now.'),
-      chat.messages.length
-        ? h('div', { class: 'thread', 'aria-live': 'polite' }, chat.messages.map(bubble))
-        : aiConfig.provider && h('div', { class: 'prompt-chips' }, SUGGESTIONS.map((q) => h('button', { type: 'button', class: 'chip', onclick: () => askProbe(q) }, q))),
-      !aiConfig.provider && notice('', 'sparkle', 'Probe gives these readings on its own. To ask your own questions, ',
-        h('a', { href: '#/settings?section=ai', onclick: () => probePanel.close() }, 'connect AI help'), ' with your OpenAI or Claude key.')),
+
+  probePanel.replaceChildren(...[
+    head,
+    context,
+    h('div', { class: 'panel-body' }, body),
     h('div', { class: 'panel-foot' }, form,
-      h('p', { class: 'fineprint' }, 'Probe reads your problems, notes, dates and deadlines, never your photos. It is not legal advice.'),
-      chat.messages.length > 0 && !chat.busy && h('button', { type: 'button', class: 'chip', onclick: () => { chat.messages = []; paintProbe(); } }, 'Start a new chat')));
-  const body = probePanel.querySelector('.panel-body');
-  if (chat.messages.length) requestAnimationFrame(() => { body.scrollTop = body.scrollHeight; });
+      h('div', { class: 'pp-hints' }, h('span', {}, 'Enter to send · Shift + Enter for a new line'), h('span', {}, 'AI answers · Check before you act')),
+      h('p', { class: 'fineprint' }, aiConfig.provider
+        ? `Your question and case record go to ${ai.PROVIDERS[aiConfig.provider].name} only when you send a message. Never your photos.`
+        : 'Probe\'s readings are worked out on this device. Nothing is sent anywhere.')),
+  ].filter(Boolean));
+  const scroller = probePanel.querySelector('.panel-body');
+  if (talking) requestAnimationFrame(() => { scroller.scrollTop = scroller.scrollHeight; });
 }
 
 async function askProbe(text) {
