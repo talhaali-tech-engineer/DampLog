@@ -317,3 +317,59 @@ export function caseClock(summary, today) {
   if (truncated) days = days.slice(-MAX_CELLS);
   return { mode: 'days', step, start, due: step.due, allowed, elapsed, overdueBy: Math.max(0, elapsed - allowed), days, truncated };
 }
+
+/* ---------- deadlines as calendar events ---------- */
+
+const icsText = (s) => String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+const encoder = new TextEncoder();
+
+// Calendar lines may be at most 75 bytes; longer ones carry on after a line break and a space.
+function fold(line) {
+  const parts = [];
+  let rest = line;
+  let limit = 75;
+  while (encoder.encode(rest).length > limit) {
+    let cut = limit;
+    while (encoder.encode(rest.slice(0, cut)).length > limit) cut--;
+    parts.push(rest.slice(0, cut));
+    rest = rest.slice(cut);
+    limit = 74;
+  }
+  parts.push(rest);
+  return parts.join('\r\n ');
+}
+
+/**
+ * The landlord's upcoming deadlines as an iCalendar file, so a phone calendar can
+ * remind the tenant. Each deadline is an all-day event (or a timed one for the
+ * 24-hour emergency clock) with a reminder before it. Returns null if nothing is due.
+ * @param {string} stamp ISO time the file is made
+ */
+export function deadlineCalendar(home, summaries, stamp) {
+  const utc = new Date(stamp).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const events = [];
+  for (const s of summaries) {
+    if (s.fixed) continue;
+    for (const step of s.deadlines.steps) {
+      if (step.status !== 'pending' || !step.due) continue;
+      const who = home.landlordName || 'Your landlord';
+      const what = step.title.charAt(0).toLowerCase() + step.title.slice(1);
+      events.push('BEGIN:VEVENT', `UID:${s.issue.id}-${step.key}@damplog`, `DTSTAMP:${utc}`);
+      if (step.dueAt) {
+        const at = `${step.dueAt.replace(/[-:]/g, '')}00`;
+        events.push(`DTSTART:${at}`, `DTEND:${at}`);
+      } else {
+        events.push(`DTSTART;VALUE=DATE:${step.due.replace(/-/g, '')}`, `DTEND;VALUE=DATE:${addDays(step.due, 1).replace(/-/g, '')}`);
+      }
+      events.push(
+        `SUMMARY:${icsText(`Deadline: ${who} must ${what} (${s.issue.title})`)}`,
+        `DESCRIPTION:${icsText(`${step.rule}. If it has not happened by the end of the day, open DampLog and send a chase letter.`)}`,
+        'BEGIN:VALARM', 'ACTION:DISPLAY',
+        `DESCRIPTION:${icsText(`${step.dueAt ? 'In 2 hours' : 'Tomorrow'}: ${who} must ${what}`)}`,
+        step.dueAt ? 'TRIGGER:-PT2H' : 'TRIGGER:-PT15H',
+        'END:VALARM', 'END:VEVENT');
+    }
+  }
+  if (!events.length) return null;
+  return `${['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//DampLog//Landlord deadlines//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:DampLog deadlines', ...events, 'END:VCALENDAR'].map(fold).join('\r\n')}\r\n`;
+}

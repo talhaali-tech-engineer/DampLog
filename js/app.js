@@ -570,7 +570,7 @@ function viewIssue(id) {
         btn('Write the report', { icon: 'mail', size: 'sm', kind: 'primary', href: `#/letters/${issue.id}?kind=report` }),
         btn('I have reported it', { icon: 'check', size: 'sm', href: `#/add/${issue.id}?type=reported` }))),
     h('div', { class: 'grid-2 wide-left' },
-      timelineCard(issue, s),
+      h('div', { class: 'stack' }, compareCard(issue), timelineCard(issue, s)),
       h('div', { class: 'stack' },
         deadlinesCard(issue, s, t),
         card('',
@@ -580,6 +580,70 @@ function viewIssue(id) {
           h('div', { class: 'actions' },
             s.fixed ? btn('Reopen', { icon: 'refresh', size: 'sm', onclick: reopen }) : btn('Mark as fixed', { icon: 'check', size: 'sm', href: `#/add/${issue.id}?type=fixed` }),
             btn('Delete', { icon: 'trash', size: 'sm', kind: 'ghost', onclick: deleteIssue }))))));
+}
+
+/** Then and now: drag across two photos of the same problem to show how it has changed. */
+function compareCard(issue) {
+  const photos = state.photos.filter((p) => p.issueId === issue.id).sort((a, b) => String(a.takenAt).localeCompare(String(b.takenAt)));
+  if (photos.length < 2) return null;
+  let then = photos[0];
+  let now = photos.at(-1);
+  const thenImg = h('img', { alt: '' });
+  const nowImg = h('img', { alt: '' });
+  const thenLabel = h('span', { class: 'cmp-label then' });
+  const nowLabel = h('span', { class: 'cmp-label now' });
+  const gap = h('span', { class: 'cmp-gap' });
+  const frame = h('div', { class: 'compare' }, nowImg, h('div', { class: 'compare-then' }, thenImg), h('span', { class: 'compare-handle' }), thenLabel, nowLabel);
+  const range = h('input', { type: 'range', min: 0, max: 100, value: 50, class: 'compare-range', 'aria-label': 'Slide between the earlier and the later photo' });
+  const setPos = (pct) => {
+    const v = Math.max(0, Math.min(100, pct));
+    range.value = String(Math.round(v));
+    frame.style.setProperty('--pos', `${v}%`);
+  };
+  const paint = () => {
+    thenImg.src = photoUrl(then);
+    nowImg.src = photoUrl(now);
+    thenLabel.textContent = `Then · ${fmtDate(then.takenAt)}`;
+    nowLabel.textContent = `Now · ${fmtDate(now.takenAt)}`;
+    const days = core.daysBetween(core.dateOf(then.takenAt), core.dateOf(now.takenAt));
+    gap.textContent = days > 0 ? `${plural(days, 'day')} apart` : 'Same day';
+  };
+  range.addEventListener('input', () => setPos(Number(range.value)));
+  // Drag straight on the photos too, with a finger or a mouse.
+  const follow = (e) => {
+    const box = frame.getBoundingClientRect();
+    setPos(((e.clientX - box.left) / box.width) * 100);
+  };
+  frame.addEventListener('pointerdown', (e) => {
+    frame.setPointerCapture(e.pointerId);
+    follow(e);
+  });
+  frame.addEventListener('pointermove', (e) => { if (frame.hasPointerCapture(e.pointerId)) follow(e); });
+  const choose = (which) => h('select', {
+    'aria-label': which === 'then' ? 'Earlier photo' : 'Later photo',
+    onchange: (e) => {
+      const p = photos.find((x) => x.id === e.target.value);
+      if (which === 'then') then = p;
+      else now = p;
+      paint();
+    },
+  }, photos.map((p, i) => h('option', { value: p.id, selected: p === (which === 'then' ? then : now) }, `Photo ${i + 1} · ${fmtTime(p.takenAt)}`)));
+  paint();
+  setPos(50);
+  return card('compare-card',
+    cardHead('Then and now', { iconName: 'compare', sub: 'Drag across the photo to show how it has changed' }),
+    frame, range,
+    h('div', { class: 'compare-foot' }, choose('then'), gap, choose('now')));
+}
+
+function downloadCalendar(list) {
+  const ics = core.deadlineCalendar(state.home, list, new Date().toISOString());
+  if (!ics) {
+    toast('There are no upcoming deadlines to add.', 'bad');
+    return;
+  }
+  download('damplog-deadlines.ics', ics, 'text/calendar');
+  toast('Calendar file saved. Open it to add the deadlines and reminders to your calendar.');
 }
 
 function deadlinesCard(issue, s, t) {
@@ -607,7 +671,9 @@ function deadlinesCard(issue, s, t) {
     cardHead('Landlord deadlines', { iconName: 'clock', sub }),
     d.reportedAt && h('p', { class: 'small' }, `Told ${fmtTime(d.reportedAt)} · ${plural(s.workingDaysSinceReport, 'working day')} ago`),
     body,
-    d.overdue.length > 0 && btn('Chase your landlord', { icon: 'mail', kind: 'primary', href: `#/letters/${issue.id}?kind=chase` }));
+    h('div', { class: 'actions' },
+      d.overdue.length > 0 && btn('Chase your landlord', { icon: 'mail', kind: 'primary', href: `#/letters/${issue.id}?kind=chase` }),
+      d.steps.some((x) => x.status === 'pending' && x.due) && btn('Add to my calendar', { icon: 'calendar', onclick: () => downloadCalendar([s]) })));
 }
 
 function timelineCard(issue, s) {
@@ -950,6 +1016,17 @@ function viewReport(id) {
             h('td', {}, step.dueAt ? fmtTime(step.dueAt) : step.due ? fmtDate(step.due) : '—'),
             h('td', {}, step.doneAt ? fmtTime(step.doneAt) : '—'),
             h('td', {}, STEP_TONE[step.status][1])))))),
+      allPhotos.length > 1 && (() => {
+        // The first and latest photos side by side show whether the problem is getting worse.
+        const byTime = allPhotos.map((x) => x.photo).sort((a, b) => String(a.takenAt).localeCompare(String(b.takenAt)));
+        const [first, last] = [byTime[0], byTime.at(-1)];
+        const days = core.daysBetween(core.dateOf(first.takenAt), core.dateOf(last.takenAt));
+        return h('section', { class: 'report-compare' },
+          h('h2', {}, `Then and now · ${plural(days, 'day')} apart`),
+          h('div', { class: 'photo-grid' }, [[first, 'Then'], [last, 'Now']].map(([p, label]) => h('figure', {},
+            h('img', { src: photoUrl(p), alt: `${label}: photo ${photoNumber.get(p.id)}` }),
+            h('figcaption', {}, h('strong', {}, `${label}. `), `Photo ${photoNumber.get(p.id)} · ${fmtTime(p.takenAt)}`)))));
+      })(),
       h('section', {},
         h('h2', {}, 'Timeline'),
         h('table', { class: 'grid timeline-table' },
@@ -1006,6 +1083,7 @@ function openProbe({ focus = false, ask } = {}) {
     if (!probePanel) {
       probePanel = h('dialog', { class: 'probe-panel', 'aria-label': 'Probe, your case assistant', tabindex: '-1' });
       probePanel.addEventListener('click', (e) => { if (e.target === probePanel) probePanel.close(); });
+      probePanel.addEventListener('close', stopSpeaking);
       document.body.append(probePanel);
     }
     if (!probePanel.open) {
@@ -1020,6 +1098,7 @@ function openProbe({ focus = false, ask } = {}) {
 }
 
 function closeProbe() {
+  stopSpeaking();
   if (probeDocked()) {
     chat.hidden = true;
     render();
@@ -1035,6 +1114,40 @@ function goFromProbe(href) {
 
 wide.addEventListener('change', () => render());
 
+// Probe reads aloud with the device's own voice, so it works offline and sends
+// nothing anywhere. Its mouth moves while it speaks.
+const canSpeak = 'speechSynthesis' in window;
+
+function restMood() {
+  const lead = summaries().find((s) => !s.fixed);
+  return chat.busy ? 'thinking' : lead?.deadlines.overdue.length ? 'alert' : 'idle';
+}
+
+function stopSpeaking() {
+  if (canSpeak) speechSynthesis.cancel();
+}
+
+function speak(text, face) {
+  if (!canSpeak) return;
+  if (speechSynthesis.speaking) {
+    stopSpeaking();
+    return;
+  }
+  // Read the words, not the formatting: drop bold marks, headings and list markers.
+  const plain = text.replace(/\*\*|`/g, '').replace(/^\s*#+\s*/gm, '').replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, '');
+  const say = new SpeechSynthesisUtterance(plain);
+  const voices = speechSynthesis.getVoices();
+  say.voice = voices.find((v) => v.lang === 'en-GB') ?? voices.find((v) => v.lang.startsWith('en')) ?? null;
+  say.lang = 'en-GB';
+  say.onstart = () => [face, chat.face].forEach((f) => setProbeMood(f, 'talking'));
+  say.onend = () => {
+    setProbeMood(face, face === chat.face ? restMood() : 'idle');
+    setProbeMood(chat.face, restMood());
+  };
+  say.onerror = say.onend;
+  speechSynthesis.speak(say);
+}
+
 function fillReply(m) {
   if (!m.el) return;
   const { text, actions } = splitActions(m.content);
@@ -1043,8 +1156,9 @@ function fillReply(m) {
   else if (!text) m.el.replaceChildren(h('span', { class: 'typing', 'aria-label': 'Probe is taking a reading' }, h('i'), h('i'), h('i')));
   else {
     m.el.replaceChildren(...[renderMarkdown(text),
-      !m.pending && urgent && actions.length > 0 && h('div', { class: 'msg-actions' },
-        actions.map((id) => btn(ACTION_IDS[id].label, { size: 'sm', icon: 'next', onclick: () => goFromProbe(ACTION_IDS[id].path(urgent.issue.id)) })))].filter(Boolean));
+      !m.pending && h('div', { class: 'msg-actions' },
+        urgent && actions.map((id) => btn(ACTION_IDS[id].label, { size: 'sm', icon: 'next', onclick: () => goFromProbe(ACTION_IDS[id].path(urgent.issue.id)) })),
+        canSpeak && btn('Listen', { size: 'sm', icon: 'volume', kind: 'ghost', onclick: () => speak(text, m.face) }))].filter(Boolean));
   }
   const mood = m.pending ? (text ? 'talking' : 'thinking') : 'idle';
   setProbeMood(m.face, mood);
@@ -1089,7 +1203,7 @@ function paintProbe() {
       h('h2', {}, 'Case assistant'),
       h('span', { class: `pp-status ${late ? 'bad' : ''}` }, h('i'), status)),
     h('div', { class: 'pp-tools' },
-      talking && !chat.busy && btn('', { icon: 'refresh', title: 'New chat', onclick: () => { chat.messages = []; paintProbe(); } }),
+      talking && !chat.busy && btn('', { icon: 'refresh', title: 'New chat', onclick: () => { stopSpeaking(); chat.messages = []; paintProbe(); } }),
       btn('', { icon: chat.calm ? 'play' : 'pause', title: chat.calm ? 'Play animations' : 'Pause animations', onclick: () => { chat.calm = !chat.calm; paintProbe(); } }),
       btn('', { icon: 'close', title: docked ? 'Hide Probe' : 'Close', onclick: closeProbe })));
 
@@ -1123,6 +1237,7 @@ function paintProbe() {
         h('span', { class: 'kicker' }, 'Your case assistant'),
         h('h3', {}, late ? 'Let\'s get them moving.' : steps.length ? 'Let\'s keep your case on track.' : 'All quiet on your case.'),
         h('p', {}, steps[0]?.text ?? 'Ask me anything about your record. I know your dates and the deadlines.'),
+        canSpeak && steps[0] && btn('Hear my next move', { icon: 'volume', size: 'sm', kind: 'ghost', onclick: () => speak(`${steps[0].title}. ${steps[0].text}`, chat.face) }),
         h('div', { class: 'pp-chips' },
           h('span', {}, icon('clock', 14), 'Knows your deadlines'),
           h('span', {}, icon('shield', 14), 'Never sees your photos'))),

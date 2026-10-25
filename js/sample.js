@@ -65,7 +65,7 @@ function vignette(ctx, w, h) {
 
 const MOULD = ['rgba(28,30,24,A)', 'rgba(44,48,34,A)', 'rgba(62,58,40,A)', 'rgba(20,20,20,A)'];
 
-/** Draws one sample photo: 'corner', 'window', 'wardrobe' or 'sink'. */
+/** Draws one sample photo: 'corner', 'corner-late', 'window', 'wardrobe' or 'sink'. */
 export function drawSample(kind, seed = 1) {
   const w = 1200;
   const h = 900;
@@ -142,6 +142,8 @@ export function drawSample(kind, seed = 1) {
       spots(ctx, r, [{ x: 370, y: 296, sx: 160, sy: 12 }, { x: 150, y: 560, sx: 10, sy: 150 }, { x: 590, y: 560, sx: 10, sy: 150 }], 2600, MOULD);
     }
     spots(ctx, r, [{ x: 870, y: 175, sx: 120, sy: 55 }, { x: 980, y: 210, sx: 80, sy: 90 }, { x: 700, y: 165, sx: 90, sy: 18 }], kind === 'window' ? 3200 : 6500, MOULD);
+    // Weeks later the same corner: the growth has spread along the ceiling and down the wall.
+    if (kind === 'corner-late') spots(ctx, r, [{ x: 760, y: 190, sx: 230, sy: 70 }, { x: 1010, y: 360, sx: 90, sy: 200 }, { x: 480, y: 168, sx: 170, sy: 22 }], 9000, MOULD);
   }
   vignette(ctx, w, h);
   return canvas;
@@ -202,8 +204,8 @@ export function sampleData(today, ctx) {
     { issueId: mould.id, type: 'contact', at: at(weekday(addDays(today, -6)), '13:40'), method: 'Email',
       text: 'Emailed repairs to ask when the surveyor will visit. No reply yet.' },
     { issueId: mould.id, type: 'observation', at: at(addDays(today, -2), '18:55'),
-      text: 'Mould has spread behind the wardrobe and along the skirting board.',
-      photoIds: [photo(mould, 'wardrobe', 23, at(addDays(today, -2), '18:52'))] },
+      text: 'Mould has spread behind the wardrobe and along the skirting board. The patch above the window is much bigger.',
+      photoIds: [photo(mould, 'wardrobe', 23, at(addDays(today, -2), '18:52')), photo(mould, 'corner-late', 7, at(addDays(today, -2), '18:54'))] },
 
     { issueId: leak.id, type: 'observation', at: at(addDays(today, -84), '20:30'), text: 'Water pooling in the cupboard under the sink.',
       photoIds: [photo(leak, 'sink', 5, at(addDays(today, -84), '20:28'))] },

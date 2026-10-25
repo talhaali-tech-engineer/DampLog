@@ -181,3 +181,25 @@ test('the clock has nothing to count before reporting, after fixing, or for emer
   assert.equal(caseClock(e, today('2026-10-20', '10:00')).mode, 'long');
   assert.equal(caseClock(issueSummary(issue(), [entry('reported', '2026-10-01T10:00')], 'private', today('2026-10-20')), today('2026-10-20')).mode, 'no-deadlines');
 });
+
+test('upcoming deadlines become calendar events with reminders', async () => {
+  const { deadlineCalendar } = await import('../js/core.js');
+  const s = issueSummary(cleanIssue({ id: 'i1', kind: 'damp-mould', title: 'Mould, bedroom; window' }, ctx), [entry('reported', '2026-10-12T10:00')], 'social', today('2026-10-20'));
+  const ics = deadlineCalendar({ landlordName: 'Elm Court Homes, Ltd' }, [s], '2026-10-20T08:00:00Z');
+  assert.match(ics, /^BEGIN:VCALENDAR\r\n/);
+  assert.match(ics, /\r\nEND:VCALENDAR\r\n$/);
+  assert.match(ics, /DTSTART;VALUE=DATE:20261026\r\nDTEND;VALUE=DATE:20261027/);
+  assert.match(ics, /UID:i1-investigation@damplog/);
+  assert.match(ics, /DTSTAMP:20261020T080000Z/);
+  assert.match(ics, /TRIGGER:-PT15H/);
+  const unfolded = ics.replace(/\r\n /g, '');
+  assert.match(unfolded, /SUMMARY:Deadline: Elm Court Homes\\, Ltd must investigate the problem \(Mould\\, bedroom\\; window\)/);
+  assert.ok(ics.split('\r\n').every((line) => new TextEncoder().encode(line).length <= 75));
+  assert.equal(ics.match(/BEGIN:VEVENT/g).length, 1); // the next steps wait for the investigation
+});
+
+test('no calendar when nothing is coming up', async () => {
+  const { deadlineCalendar } = await import('../js/core.js');
+  const late = issueSummary(issue(), [entry('reported', '2026-09-01T10:00')], 'social', today('2026-10-20'));
+  assert.equal(deadlineCalendar({}, [late], '2026-10-20T08:00:00Z'), null);
+});
