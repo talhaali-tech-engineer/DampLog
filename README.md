@@ -6,7 +6,7 @@
 
 **An evidence log for damp, mould and repairs in rented homes, with Awaab's Law deadline tracking.**
 
-[**Live app**](https://talhaali-tech-engineer.github.io/DampLog/) &nbsp;·&nbsp; [Screenshots](#screenshots) &nbsp;·&nbsp; [How the deadlines are counted](#how-the-deadlines-are-counted) &nbsp;·&nbsp; [Run it locally](#run-it-locally)
+[**Live app**](https://talhaali-tech-engineer.github.io/DampLog/) &nbsp;·&nbsp; [**Watch the video**](https://talhaali-tech-engineer.github.io/DampLog/docs/damplog-demo.mp4) &nbsp;·&nbsp; [Screenshots](#screenshots) &nbsp;·&nbsp; [How the deadlines are counted](#how-the-deadlines-are-counted) &nbsp;·&nbsp; [Run it locally](#run-it-locally)
 
 [![Tests](https://github.com/talhaali-tech-engineer/DampLog/actions/workflows/test.yml/badge.svg)](https://github.com/talhaali-tech-engineer/DampLog/actions/workflows/test.yml)
 ![License: MIT](https://img.shields.io/badge/license-MIT-2f6fe0)
@@ -20,7 +20,7 @@ DampLog helps tenants in England keep a dated record of damp, mould and disrepai
 > **Scope:** DampLog helps you keep a record and write to your landlord. It is not legal advice.
 
 <div align="center">
-<img src="docs/overview.jpg" alt="DampLog overview with sample data: the landlord has missed the deadline to investigate black mould in the bedroom" width="860">
+<a href="https://talhaali-tech-engineer.github.io/DampLog/docs/damplog-demo.mp4"><img src="docs/demo-poster.jpg" alt="Watch the DampLog demo, 1 minute 44 seconds" width="860"></a>
 </div>
 
 ## Problem
@@ -41,6 +41,12 @@ The deadlines only help a tenant who can show when the landlord was told and wha
 - **Optional AI help.** With the tenant's own OpenAI or Claude key, AI describes photos factually for the record and tightens letters. Nothing the AI writes is saved until the tenant accepts it. Letter changes are shown word by word, and code checks that no date, reference or name was dropped or invented and that no legal threat was added.
 - **Your rights.** A plain-English summary of the deadlines and the route if a landlord does not act, with links to the official guidance.
 - **Private renters.** For private landlords, the same steps are tracked without legal due dates, because Awaab's Law does not apply to private renting yet.
+
+## Demo video
+
+A walkthrough of the example case in under two minutes: [**watch it here**](https://talhaali-tech-engineer.github.io/DampLog/docs/damplog-demo.mp4).
+
+The AI replies in the video are scripted from the example case and replayed in the browser, so no AI key was used to record it. The narration is generated with the open-source [Kokoro](https://huggingface.co/hexgrad/Kokoro-82M) voice model.
 
 ## Screenshots
 
