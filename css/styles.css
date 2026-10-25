@@ -720,11 +720,31 @@ button.thumb:hover { border-color: var(--accent); }
 }
 
 @media print {
-  .rail, .mobile-top, .dock, .toasts, .report-tools, .scope-note, .skip { display: none !important; }
-  body { background: #fff; }
-  .stage { margin: 0; }
-  main { padding: 0; max-width: none; }
-  .report-sheet { box-shadow: none; padding: 0; }
+  /* Paper, not screen. The app is dark on screen, but printers drop background
+     colours, which would leave its light text invisible on white paper. */
+  :root, body {
+    --ink: #15191d; --ink-2: #39424a; --muted: #5f6870; --line: #d9d9d3; --line-strong: #bdbdb5;
+    --panel: #ffffff; --panel-2: #f6f6f2; --panel-3: #ecece6; --surface: #ffffff; --surface-2: #f6f6f2; --surface-3: #ecece6;
+    --accent: #1d5bd8; --accent-soft: #e6eefc; --bad: #b42318; --bad-soft: #fde9e7; --warn: #8a5100; --warn-soft: #fcf2df;
+    --ok: #177a45; --ok-soft: #e6f5ec; --info: #1d5bd8; --info-soft: #e6eefc;
+    color-scheme: light;
+  }
+  html, body { background: #fff !important; color: var(--ink) !important; }
+  /* The print copy can catch a page mid fade-in, at opacity 0: nothing moves on paper. */
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .rail, .mobile-top, .dock, .toasts, .report-tools, .scope-note, .skip, .probe-dock, .probe-panel, dialog { display: none !important; }
+  body.probe-docked .stage, .stage { margin: 0 !important; padding: 0 !important; }
+  main { padding: 0 !important; max-width: none !important; margin: 0 !important; }
+  /* Flex boxes do not split across pages well; plain blocks do. */
+  main > .page, .report-sheet { display: block !important; }
+  .report-sheet { box-shadow: none; padding: 0; border: 0; border-radius: 0; background: #fff; color: var(--ink); }
+  .report-sheet section { margin-top: 18pt; }
+  .report-sheet h2 { break-after: avoid; }
+  .report-sheet tr, .report-sheet figure, .report-head { break-inside: avoid; }
+  .report-sheet img { max-width: 100%; }
+  /* A4 is as narrow as a phone; keep photos two to a row, then and now side by side. */
+  .report-sheet .photo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10pt; }
+  .report-sheet a { color: var(--ink); }
   body.printing-letter > :not(.print-letter) { display: none !important; }
   body.printing-letter .print-letter { display: block; }
   .print-letter pre { white-space: pre-wrap; font: 12pt/1.6 Georgia, "Times New Roman", serif; margin: 0; color: #000; }
