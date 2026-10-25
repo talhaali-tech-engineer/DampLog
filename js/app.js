@@ -1593,12 +1593,31 @@ channel?.addEventListener('message', () => act(async () => {
   state = await loadState();
   const { name } = currentRoute();
   if (['home', 'issue', 'report'].includes(name)) render();
+  holdPhotos();
 }));
 
 async function loadState() {
   const data = await db.loadAll();
   aiConfig = ai.cleanAiConfig(data.ai);
   return { home: core.cleanHome(data.home), issues: data.issues, entries: data.entries, photos: data.photos };
+}
+
+// A photo loaded from storage is read from it on demand, so it would vanish if the
+// browser cleared the storage. Copy each one into the page in the background, so a
+// cleared database can be given its photos back too (see db.keepRecordSafe).
+const heldPhotos = new WeakSet();
+async function holdPhotos() {
+  for (const p of state.photos) {
+    if (heldPhotos.has(p.blob)) continue;
+    try {
+      const copy = new Blob([await p.blob.arrayBuffer()], { type: p.blob.type || 'image/jpeg' });
+      heldPhotos.add(copy);
+      p.blob = copy;
+      forgetPhotos([p.id]);
+    } catch {
+      // Already unreadable: nothing to keep.
+    }
+  }
 }
 
 async function start() {
@@ -1611,8 +1630,27 @@ async function start() {
       h('small', {}, `(${err.message})`)));
     return;
   }
+  db.keepRecordSafe(
+    () => ({ issues: state.issues, entries: state.entries, photos: state.photos, meta: [{ id: 'home', ...state.home }, ...aiMeta()] }),
+    (err, missing) => {
+      if (err) {
+        toast(`Your browser cleared DampLog's storage, and it could not be saved again (${err.message}). Download a backup from Settings now.`, 'bad');
+        return;
+      }
+      // Photos whose data went with the cleared storage cannot be shown any more.
+      if (missing.length) {
+        forgetPhotos(missing);
+        state = { ...state, photos: state.photos.filter((p) => !missing.includes(p.id)) };
+        render();
+      }
+      toast(missing.length
+        ? `Your browser cleared DampLog's storage. Your record has been saved again from this page, but ${plural(missing.length, 'photo')} could not be. Restore them from your latest backup.`
+        : 'Your browser cleared DampLog\'s storage. Your record has been saved again from this page. Download a backup to be safe.', 'bad');
+    },
+  );
   if (!location.hash.startsWith('#/')) history.replaceState(null, '', '#/home');
   afterNavigate();
+  setTimeout(holdPhotos, 500);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Offline mode unavailable:', err));
   }

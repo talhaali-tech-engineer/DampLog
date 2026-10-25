@@ -5,6 +5,67 @@
 const NAME = 'damplog';
 const STORES = ['issues', 'entries', 'photos', 'meta'];
 let opening;
+let current = null;
+let snapshot = null;
+let onRestored = null;
+let restoring = null;
+
+/**
+ * Keeps the record safe if the browser clears the database while DampLog is open
+ * (a "clear site data" button, a privacy setting, or low storage). The record is
+ * still in the open page, so it is written straight back. Without this, the next
+ * save would go into a new, empty database, and a refresh would show nothing.
+ *
+ * getRecords() returns { issues, entries, photos, meta } as they should be stored.
+ * done(err, missingPhotoIds) is told when the record has been written back, or why
+ * it could not be.
+ */
+export function keepRecordSafe(getRecords, done) {
+  snapshot = getRecords;
+  onRestored = done;
+}
+
+/** True if a photo's data can still be read. A photo loaded from storage loses its data when the storage is cleared. */
+async function readable(photo) {
+  try {
+    await photo.blob.slice(0, 1).arrayBuffer();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function lost() {
+  opening = null;
+  current = null;
+  if (!snapshot || restoring) return;
+  let missing = [];
+  restoring = (async () => {
+    const records = snapshot();
+    const photos = [];
+    for (const p of records.photos ?? []) if (await readable(p)) photos.push(p);
+    missing = (records.photos ?? []).filter((p) => !photos.includes(p)).map((p) => p.id);
+    const keep = { ...records, photos };
+    // The browser takes a moment to finish clearing, and closes connections opened
+    // in the meantime too. Try again, waiting a little longer each time.
+    let failure;
+    for (const wait of [50, 250, 750, 1500, 3000]) {
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      try {
+        opening = null;
+        current = null;
+        const tx = (await open()).transaction(STORES, 'readwrite');
+        for (const s of STORES) tx.objectStore(s).clear();
+        for (const [store, items] of Object.entries(keep)) for (const item of items ?? []) tx.objectStore(store).put(item);
+        await finished(tx);
+        return;
+      } catch (err) {
+        failure = err;
+      }
+    }
+    throw failure;
+  })().then(() => onRestored?.(null, missing), (err) => onRestored?.(err, missing)).finally(() => { restoring = null; });
+}
 
 function open() {
   opening ??= new Promise((resolve, reject) => {
@@ -14,13 +75,16 @@ function open() {
     };
     req.onsuccess = () => {
       const db = req.result;
-      // The browser closes the connection when site data is cleared, and another
-      // tab may need it closed to reset the database. Either way, forget it so the
-      // next save opens a fresh one.
-      db.onclose = () => { opening = null; };
+      current = db;
+      // Closed by the browser, not by DampLog: the data may be gone.
+      db.onclose = () => { if (current === db) lost(); };
+      // Another tab is deleting or upgrading the database on purpose: let it.
       db.onversionchange = () => {
         db.close();
-        opening = null;
+        if (current === db) {
+          opening = null;
+          current = null;
+        }
       };
       resolve(db);
     };
@@ -36,13 +100,18 @@ function open() {
   return opening;
 }
 
-/** A transaction on a live connection, reconnecting once if the old one was closed. */
+/**
+ * A transaction on a live connection. If the browser closed the old one, the
+ * record is written back first, so nothing is saved into an empty database.
+ */
 async function transaction(stores, mode) {
+  if (restoring) await restoring;
   try {
     return (await open()).transaction(stores, mode);
   } catch (err) {
     if (err?.name !== 'InvalidStateError') throw err;
-    opening = null;
+    lost();
+    if (restoring) await restoring;
     return (await open()).transaction(stores, mode);
   }
 }
